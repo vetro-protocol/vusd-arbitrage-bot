@@ -1,0 +1,18 @@
+# Foundry
+/out/
+/cache/
+/cache_forge/
+
+# Node
+/node_modules/
+/dist/
+
+# Environment
+.env
+
+# OS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
