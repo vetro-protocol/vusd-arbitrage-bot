@@ -5,9 +5,37 @@ import { ProfitCalculator } from "./profitCalculator";
 import { SwapBuilder } from "./swapBuilder";
 import { Executor } from "./executor";
 import { ArbDirection, ArbOpportunity } from "./types";
+import { AggregatorAdapter, ParaswapAdapter, OneInchAdapter, ZeroXAdapter, LiFiAdapter } from "./aggregators";
+import { DexQuoter } from "./dexQuoter";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Build the list of enabled aggregator adapters based on config.
+ * Order determines fallback priority.
+ */
+function buildAggregators(config: Config): AggregatorAdapter[] {
+  const adapters: AggregatorAdapter[] = [];
+
+  if (config.enableParaswap) {
+    adapters.push(new ParaswapAdapter(config.aggregatorApiUrl, config.aggregatorApiKey));
+  }
+
+  if (config.enableOneInch && config.oneInchApiKey) {
+    adapters.push(new OneInchAdapter(config.oneInchApiKey));
+  }
+
+  if (config.enableZeroX && config.zeroXApiKey) {
+    adapters.push(new ZeroXAdapter(config.zeroXApiKey));
+  }
+
+  if (config.enableLifi && config.lifiEnabled) {
+    adapters.push(new LiFiAdapter());
+  }
+
+  return adapters;
 }
 
 export class Keeper {
@@ -20,10 +48,27 @@ export class Keeper {
 
   constructor(private config: Config) {
     this.provider = new ethers.JsonRpcProvider(config.rpcUrl);
-    this.priceMonitor = new PriceMonitor(this.provider, config);
+
+    const aggregators = buildAggregators(config);
+    const dexQuoter = new DexQuoter(
+      this.provider,
+      config.uniswapV3QuoterAddress,
+      config.uniswapV3RouterAddress,
+      config.curvePoolConfigs
+    );
+
+    this.priceMonitor = new PriceMonitor(this.provider, config, aggregators, dexQuoter);
     this.profitCalculator = new ProfitCalculator(config.minProfitUsd);
-    this.swapBuilder = new SwapBuilder(config);
+    this.swapBuilder = new SwapBuilder(config, aggregators, dexQuoter);
     this.executor = new Executor(this.provider, config);
+
+    console.log(
+      `[Keeper] Price sources: ${[
+        ...aggregators.map((a) => a.name),
+        ...(config.enableUniswapV3 ? ["uniswap_v3"] : []),
+        ...(config.enableCurve ? ["curve"] : []),
+      ].join(" → ") || "none"} → default(1.0)`
+    );
   }
 
   async start(): Promise<void> {
@@ -50,7 +95,7 @@ export class Keeper {
         // 1. Get prices
         const priceData = await this.priceMonitor.getPriceData(stablecoin);
         console.log(
-          `[${stablecoin.symbol}] VUSD DEX price: ${priceData.vusdDexPrice.toFixed(4)}, ` +
+          `[${stablecoin.symbol}] VUSD DEX price: ${priceData.vusdDexPrice.toFixed(4)} (via ${priceData.dexQuote.source}), ` +
             `mint fee: ${priceData.mintFeeBps}bps, redeem fee: ${priceData.redeemFeeBps}bps`
         );
 
@@ -67,6 +112,14 @@ export class Keeper {
 
         if (!evaluation) continue;
 
+        // Skip if DEX source is "default" — no real price data, can't build swap
+        if (priceData.dexQuote.source === "default") {
+          console.warn(
+            `[${stablecoin.symbol}] Opportunity detected but no DEX route available (all sources failed)`
+          );
+          continue;
+        }
+
         console.log(
           `[${stablecoin.symbol}] Opportunity found: ${ArbDirection[evaluation.direction]}, ` +
             `spread: ${evaluation.spreadBps}bps, est. profit: $${evaluation.estimatedProfitUsd.toFixed(2)}`
@@ -75,15 +128,14 @@ export class Keeper {
         // 4. Determine flash amount
         const flashAmount = this.profitCalculator.suggestFlashAmount(priceData, this.config.maxFlashAmount);
 
-        // 5. Build swap params
+        // 5. Build swap params (routed through same DEX that quoted the price)
         let swapParams;
         if (evaluation.direction === ArbDirection.MINT_AND_SELL) {
-          // We need to estimate VUSD minted first for the sell swap
-          const vusdEstimate = priceData.gatewayMintOutput; // from previewDeposit
+          const vusdEstimate = priceData.gatewayMintOutput;
           const scaledVusd = (vusdEstimate * flashAmount) / ethers.parseUnits("10000", stablecoin.decimals);
-          swapParams = await this.swapBuilder.buildSellVusdSwap(scaledVusd, stablecoin);
+          swapParams = await this.swapBuilder.buildSellVusdSwap(scaledVusd, stablecoin, priceData.dexQuote);
         } else {
-          swapParams = await this.swapBuilder.buildBuyVusdSwap(flashAmount, stablecoin);
+          swapParams = await this.swapBuilder.buildBuyVusdSwap(flashAmount, stablecoin, priceData.dexQuote);
         }
 
         // 6. Build opportunity

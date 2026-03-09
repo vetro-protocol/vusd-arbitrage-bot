@@ -1,0 +1,312 @@
+import { DexSource, SwapParams } from "./types";
+
+/**
+ * Common interface for DEX aggregator APIs.
+ * Each adapter provides price quoting and swap calldata building.
+ */
+export interface AggregatorAdapter {
+  readonly name: DexSource;
+
+  /**
+   * Get a price quote: how much destToken you get for `amount` of srcToken.
+   * Returns the raw destination amount as bigint, or null if the pair is unsupported.
+   */
+  getQuote(params: QuoteParams): Promise<bigint | null>;
+
+  /**
+   * Build swap transaction calldata.
+   * Returns SwapParams ready for on-chain execution.
+   */
+  buildSwap(params: SwapBuildParams): Promise<SwapParams>;
+}
+
+export interface QuoteParams {
+  srcToken: string;
+  destToken: string;
+  amount: bigint;
+  srcDecimals: number;
+  destDecimals: number;
+  chainId: number;
+}
+
+export interface SwapBuildParams extends QuoteParams {
+  receiver: string;
+  slippageBps: number;
+}
+
+// ---------------------------------------------------------------------------
+// Paraswap
+// ---------------------------------------------------------------------------
+
+export class ParaswapAdapter implements AggregatorAdapter {
+  readonly name: DexSource = "paraswap";
+
+  constructor(
+    private apiUrl: string,
+    private apiKey?: string
+  ) {}
+
+  private headers(): Record<string, string> {
+    const h: Record<string, string> = { "Content-Type": "application/json" };
+    if (this.apiKey) h["X-API-KEY"] = this.apiKey;
+    return h;
+  }
+
+  async getQuote(p: QuoteParams): Promise<bigint | null> {
+    try {
+      const url = new URL(`${this.apiUrl}/prices`);
+      url.searchParams.set("srcToken", p.srcToken);
+      url.searchParams.set("destToken", p.destToken);
+      url.searchParams.set("amount", p.amount.toString());
+      url.searchParams.set("srcDecimals", p.srcDecimals.toString());
+      url.searchParams.set("destDecimals", p.destDecimals.toString());
+      url.searchParams.set("network", p.chainId.toString());
+
+      const res = await fetch(url.toString(), { headers: this.headers() });
+      if (!res.ok) return null;
+
+      const data = await res.json();
+      return BigInt(data.priceRoute.destAmount);
+    } catch {
+      return null;
+    }
+  }
+
+  async buildSwap(p: SwapBuildParams): Promise<SwapParams> {
+    const headers = this.headers();
+
+    // Step 1: price quote
+    const priceUrl = new URL(`${this.apiUrl}/prices`);
+    priceUrl.searchParams.set("srcToken", p.srcToken);
+    priceUrl.searchParams.set("destToken", p.destToken);
+    priceUrl.searchParams.set("amount", p.amount.toString());
+    priceUrl.searchParams.set("srcDecimals", p.srcDecimals.toString());
+    priceUrl.searchParams.set("destDecimals", p.destDecimals.toString());
+    priceUrl.searchParams.set("network", p.chainId.toString());
+
+    const priceRes = await fetch(priceUrl.toString(), { headers });
+    if (!priceRes.ok) {
+      throw new Error(`Paraswap price failed: ${priceRes.status}`);
+    }
+    const priceData = await priceRes.json();
+    const expectedOutput = BigInt(priceData.priceRoute.destAmount);
+    const minAmountOut = (expectedOutput * BigInt(10000 - p.slippageBps)) / 10000n;
+
+    // Step 2: transaction calldata
+    const txUrl = new URL(`${this.apiUrl}/transactions/${p.chainId}`);
+    const txBody = {
+      srcToken: p.srcToken,
+      destToken: p.destToken,
+      srcAmount: p.amount.toString(),
+      destAmount: expectedOutput.toString(),
+      priceRoute: priceData.priceRoute,
+      userAddress: p.receiver,
+      receiver: p.receiver,
+      srcDecimals: p.srcDecimals,
+      destDecimals: p.destDecimals,
+    };
+
+    const txRes = await fetch(txUrl.toString(), {
+      method: "POST",
+      headers,
+      body: JSON.stringify(txBody),
+    });
+    if (!txRes.ok) {
+      throw new Error(`Paraswap tx build failed: ${txRes.status}`);
+    }
+    const txData = await txRes.json();
+
+    return {
+      target: txData.to,
+      approveTarget: priceData.priceRoute.tokenTransferProxy || txData.to,
+      swapCalldata: txData.data,
+      minAmountOut,
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 1inch
+// ---------------------------------------------------------------------------
+
+export class OneInchAdapter implements AggregatorAdapter {
+  readonly name: DexSource = "1inch";
+
+  constructor(private apiKey: string) {}
+
+  private baseUrl(chainId: number): string {
+    return `https://api.1inch.dev/swap/v6.0/${chainId}`;
+  }
+
+  private headers(): Record<string, string> {
+    return {
+      Authorization: `Bearer ${this.apiKey}`,
+      Accept: "application/json",
+    };
+  }
+
+  async getQuote(p: QuoteParams): Promise<bigint | null> {
+    try {
+      const url = new URL(`${this.baseUrl(p.chainId)}/quote`);
+      url.searchParams.set("src", p.srcToken);
+      url.searchParams.set("dst", p.destToken);
+      url.searchParams.set("amount", p.amount.toString());
+
+      const res = await fetch(url.toString(), { headers: this.headers() });
+      if (!res.ok) return null;
+
+      const data = await res.json();
+      return BigInt(data.dstAmount);
+    } catch {
+      return null;
+    }
+  }
+
+  async buildSwap(p: SwapBuildParams): Promise<SwapParams> {
+    const url = new URL(`${this.baseUrl(p.chainId)}/swap`);
+    url.searchParams.set("src", p.srcToken);
+    url.searchParams.set("dst", p.destToken);
+    url.searchParams.set("amount", p.amount.toString());
+    url.searchParams.set("from", p.receiver);
+    url.searchParams.set("receiver", p.receiver);
+    url.searchParams.set("slippage", (p.slippageBps / 100).toString());
+    url.searchParams.set("disableEstimate", "true");
+
+    const res = await fetch(url.toString(), { headers: this.headers() });
+    if (!res.ok) {
+      throw new Error(`1inch swap build failed: ${res.status}`);
+    }
+    const data = await res.json();
+
+    const expectedOutput = BigInt(data.dstAmount);
+    const minAmountOut = (expectedOutput * BigInt(10000 - p.slippageBps)) / 10000n;
+
+    return {
+      target: data.tx.to,
+      approveTarget: data.tx.to,
+      swapCalldata: data.tx.data,
+      minAmountOut,
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 0x
+// ---------------------------------------------------------------------------
+
+export class ZeroXAdapter implements AggregatorAdapter {
+  readonly name: DexSource = "0x";
+
+  constructor(private apiKey: string) {}
+
+  private headers(): Record<string, string> {
+    return {
+      "0x-api-key": this.apiKey,
+      "0x-version": "2",
+      Accept: "application/json",
+    };
+  }
+
+  async getQuote(p: QuoteParams): Promise<bigint | null> {
+    try {
+      const url = new URL("https://api.0x.org/swap/allowance-holder/price");
+      url.searchParams.set("sellToken", p.srcToken);
+      url.searchParams.set("buyToken", p.destToken);
+      url.searchParams.set("sellAmount", p.amount.toString());
+      url.searchParams.set("chainId", p.chainId.toString());
+
+      const res = await fetch(url.toString(), { headers: this.headers() });
+      if (!res.ok) return null;
+
+      const data = await res.json();
+      return BigInt(data.buyAmount);
+    } catch {
+      return null;
+    }
+  }
+
+  async buildSwap(p: SwapBuildParams): Promise<SwapParams> {
+    const url = new URL("https://api.0x.org/swap/allowance-holder/quote");
+    url.searchParams.set("sellToken", p.srcToken);
+    url.searchParams.set("buyToken", p.destToken);
+    url.searchParams.set("sellAmount", p.amount.toString());
+    url.searchParams.set("chainId", p.chainId.toString());
+    url.searchParams.set("taker", p.receiver);
+    url.searchParams.set("slippageBps", p.slippageBps.toString());
+
+    const res = await fetch(url.toString(), { headers: this.headers() });
+    if (!res.ok) {
+      throw new Error(`0x swap build failed: ${res.status}`);
+    }
+    const data = await res.json();
+
+    const minAmountOut = (BigInt(data.buyAmount) * BigInt(10000 - p.slippageBps)) / 10000n;
+
+    return {
+      target: data.transaction.to,
+      approveTarget: data.issues?.allowance?.spender || data.transaction.to,
+      swapCalldata: data.transaction.data,
+      minAmountOut,
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// LiFi
+// ---------------------------------------------------------------------------
+
+export class LiFiAdapter implements AggregatorAdapter {
+  readonly name: DexSource = "lifi";
+
+  async getQuote(p: QuoteParams): Promise<bigint | null> {
+    try {
+      const url = new URL("https://li.fi/v1/quote");
+      url.searchParams.set("fromChain", p.chainId.toString());
+      url.searchParams.set("toChain", p.chainId.toString());
+      url.searchParams.set("fromToken", p.srcToken);
+      url.searchParams.set("toToken", p.destToken);
+      url.searchParams.set("fromAmount", p.amount.toString());
+      url.searchParams.set("fromAddress", "0x0000000000000000000000000000000000000001");
+
+      const res = await fetch(url.toString(), {
+        headers: { Accept: "application/json" },
+      });
+      if (!res.ok) return null;
+
+      const data = await res.json();
+      return BigInt(data.estimate.toAmount);
+    } catch {
+      return null;
+    }
+  }
+
+  async buildSwap(p: SwapBuildParams): Promise<SwapParams> {
+    const url = new URL("https://li.fi/v1/quote");
+    url.searchParams.set("fromChain", p.chainId.toString());
+    url.searchParams.set("toChain", p.chainId.toString());
+    url.searchParams.set("fromToken", p.srcToken);
+    url.searchParams.set("toToken", p.destToken);
+    url.searchParams.set("fromAmount", p.amount.toString());
+    url.searchParams.set("fromAddress", p.receiver);
+    url.searchParams.set("toAddress", p.receiver);
+    url.searchParams.set("slippage", (p.slippageBps / 10000).toFixed(4));
+
+    const res = await fetch(url.toString(), {
+      headers: { Accept: "application/json" },
+    });
+    if (!res.ok) {
+      throw new Error(`LiFi swap build failed: ${res.status}`);
+    }
+    const data = await res.json();
+
+    const minAmountOut =
+      (BigInt(data.estimate.toAmount) * BigInt(10000 - p.slippageBps)) / 10000n;
+
+    return {
+      target: data.transactionRequest.to,
+      approveTarget: data.estimate.approvalAddress || data.transactionRequest.to,
+      swapCalldata: data.transactionRequest.data,
+      minAmountOut,
+    };
+  }
+}

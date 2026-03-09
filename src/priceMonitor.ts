@@ -1,6 +1,8 @@
 import { ethers } from "ethers";
 import { Config } from "./config";
-import { PriceData, StablecoinConfig } from "./types";
+import { DexQuoteResult, PriceData, StablecoinConfig } from "./types";
+import { AggregatorAdapter } from "./aggregators";
+import { DexQuoter } from "./dexQuoter";
 
 const GATEWAY_ABI = [
   "function previewDeposit(address tokenIn_, uint256 amountIn_) view returns (uint256)",
@@ -16,27 +18,29 @@ export class PriceMonitor {
 
   constructor(
     private provider: ethers.Provider,
-    private config: Config
+    private config: Config,
+    private aggregators: AggregatorAdapter[],
+    private dexQuoter: DexQuoter
   ) {
     this.gateway = new ethers.Contract(config.gatewayAddress, GATEWAY_ABI, provider);
   }
 
   async getPriceData(stablecoin: StablecoinConfig): Promise<PriceData> {
-    // Use a meaningful test amount for price discovery
     const testAmount = ethers.parseUnits("10000", stablecoin.decimals);
     const testVusdAmount = ethers.parseUnits("10000", 18);
 
-    const [gatewayMintOutput, gatewayRedeemOutput, mintFeeBps, redeemFeeBps, vusdDexPrice] =
+    const [gatewayMintOutput, gatewayRedeemOutput, mintFeeBps, redeemFeeBps, dexQuote] =
       await Promise.all([
         this.gateway.previewDeposit(stablecoin.address, testAmount) as Promise<bigint>,
         this.gateway.previewRedeem(stablecoin.address, testVusdAmount) as Promise<bigint>,
         this.gateway.mintFee(stablecoin.address) as Promise<bigint>,
         this.gateway.redeemFee(stablecoin.address) as Promise<bigint>,
-        this.fetchDexPrice(stablecoin),
+        this.fetchDexQuote(stablecoin),
       ]);
 
     return {
-      vusdDexPrice,
+      vusdDexPrice: dexQuote.price,
+      dexQuote,
       gatewayMintOutput,
       gatewayRedeemOutput,
       mintFeeBps: Number(mintFeeBps),
@@ -45,7 +49,6 @@ export class PriceMonitor {
     };
   }
 
-  /** Check capacity limits on the Gateway */
   async getCapacity(stablecoin: StablecoinConfig): Promise<{ maxMint: bigint; maxWithdraw: bigint }> {
     const [maxMint, maxWithdraw] = await Promise.all([
       this.gateway.maxMint() as Promise<bigint>,
@@ -55,48 +58,71 @@ export class PriceMonitor {
   }
 
   /**
-   * Fetch VUSD price on DEX via aggregator quote API
-   * Returns price in stablecoin terms (e.g., 0.98 means 1 VUSD = 0.98 USDC)
+   * Fetch VUSD DEX price using a fallback chain:
+   * Aggregator APIs (Paraswap → 1inch → 0x → LiFi) → Uniswap V3 → Curve → default 1.0
    */
-  private async fetchDexPrice(stablecoin: StablecoinConfig): Promise<number> {
-    const vusdAmount = ethers.parseUnits("1000", 18); // quote for 1000 VUSD
+  private async fetchDexQuote(stablecoin: StablecoinConfig): Promise<DexQuoteResult> {
+    const vusdAmount = ethers.parseUnits("1000", 18);
 
-    try {
-      // Paraswap /prices endpoint
-      const url = new URL(`${this.config.aggregatorApiUrl}/prices`);
-      url.searchParams.set("srcToken", this.config.vusdAddress);
-      url.searchParams.set("destToken", stablecoin.address);
-      url.searchParams.set("amount", vusdAmount.toString());
-      url.searchParams.set("srcDecimals", "18");
-      url.searchParams.set("destDecimals", stablecoin.decimals.toString());
-      url.searchParams.set("network", this.config.chainId.toString());
+    // 1. Try each aggregator adapter in order
+    for (const adapter of this.aggregators) {
+      try {
+        const destAmount = await adapter.getQuote({
+          srcToken: this.config.vusdAddress,
+          destToken: stablecoin.address,
+          amount: vusdAmount,
+          srcDecimals: 18,
+          destDecimals: stablecoin.decimals,
+          chainId: this.config.chainId,
+        });
 
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (this.config.aggregatorApiKey) {
-        headers["X-API-KEY"] = this.config.aggregatorApiKey;
+        if (destAmount !== null && destAmount > 0n) {
+          const price =
+            Number(destAmount) / 10 ** stablecoin.decimals / (Number(vusdAmount) / 10 ** 18);
+          console.log(`  [${stablecoin.symbol}] DEX price via ${adapter.name}: ${price.toFixed(6)}`);
+          return { price, source: adapter.name };
+        }
+      } catch (error) {
+        // Adapter failed, try next
       }
-
-      const response = await fetch(url.toString(), { headers });
-
-      if (!response.ok) {
-        console.warn(`DEX price fetch failed for ${stablecoin.symbol}: ${response.status}`);
-        return 1.0; // Default to peg if API fails
-      }
-
-      const data = await response.json();
-      const destAmount = BigInt(data.priceRoute.destAmount);
-
-      // Price = destAmount / srcAmount (normalized to decimals)
-      // e.g., 980_000000 USDC for 1000_000000000000000000 VUSD = 0.98
-      const price =
-        Number(destAmount) /
-        10 ** stablecoin.decimals /
-        (Number(vusdAmount) / 10 ** 18);
-
-      return price;
-    } catch (error) {
-      console.error(`Error fetching DEX price for ${stablecoin.symbol}:`, error);
-      return 1.0;
     }
+
+    // 2. Try Uniswap V3 on-chain quoter
+    if (this.config.enableUniswapV3) {
+      const uniQuote = await this.dexQuoter.quoteUniswapV3(
+        this.config.vusdAddress,
+        stablecoin.address,
+        vusdAmount,
+        stablecoin.decimals,
+        18
+      );
+      if (uniQuote) {
+        console.log(
+          `  [${stablecoin.symbol}] DEX price via uniswap_v3 (fee ${uniQuote.feeTier}): ${uniQuote.price.toFixed(6)}`
+        );
+        return uniQuote;
+      }
+    }
+
+    // 3. Try Curve on-chain quoter
+    if (this.config.enableCurve) {
+      const curveQuote = await this.dexQuoter.quoteCurve(
+        stablecoin.address,
+        vusdAmount,
+        stablecoin.decimals,
+        18,
+        true // VUSD is input (sell direction for quoting)
+      );
+      if (curveQuote) {
+        console.log(
+          `  [${stablecoin.symbol}] DEX price via curve: ${curveQuote.price.toFixed(6)}`
+        );
+        return curveQuote;
+      }
+    }
+
+    // 4. All sources failed
+    console.warn(`  [${stablecoin.symbol}] All DEX price sources failed, defaulting to 1.0`);
+    return { price: 1.0, source: "default" };
   }
 }

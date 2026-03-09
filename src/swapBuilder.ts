@@ -1,41 +1,58 @@
 import { ethers } from "ethers";
 import { Config } from "./config";
-import { SwapParams, StablecoinConfig } from "./types";
+import { DexQuoteResult, SwapParams, StablecoinConfig } from "./types";
+import { AggregatorAdapter } from "./aggregators";
+import { DexQuoter } from "./dexQuoter";
 
 export class SwapBuilder {
-  constructor(private config: Config) {}
+  /** Aggregator adapters keyed by DexSource name for quick lookup */
+  private adapterMap: Map<string, AggregatorAdapter>;
+
+  constructor(
+    private config: Config,
+    aggregators: AggregatorAdapter[],
+    private dexQuoter: DexQuoter
+  ) {
+    this.adapterMap = new Map(aggregators.map((a) => [a.name, a]));
+  }
 
   /**
-   * Build SwapParams for selling VUSD for stablecoin (mintAndSell direction)
-   * Calls aggregator API to get best route
+   * Build SwapParams for selling VUSD for stablecoin (MINT_AND_SELL direction).
+   * Routes through the same DEX that provided the price quote.
    */
   async buildSellVusdSwap(
     vusdAmount: bigint,
-    stablecoin: StablecoinConfig
+    stablecoin: StablecoinConfig,
+    dexQuote: DexQuoteResult
   ): Promise<SwapParams> {
     return this.buildSwap(
       this.config.vusdAddress,
       18,
       stablecoin.address,
       stablecoin.decimals,
-      vusdAmount
+      vusdAmount,
+      dexQuote,
+      true // vusdIsInput
     );
   }
 
   /**
-   * Build SwapParams for buying VUSD with stablecoin (buyAndRedeem direction)
-   * Calls aggregator API to get best route
+   * Build SwapParams for buying VUSD with stablecoin (BUY_AND_REDEEM direction).
+   * Routes through the same DEX that provided the price quote.
    */
   async buildBuyVusdSwap(
     stablecoinAmount: bigint,
-    stablecoin: StablecoinConfig
+    stablecoin: StablecoinConfig,
+    dexQuote: DexQuoteResult
   ): Promise<SwapParams> {
     return this.buildSwap(
       stablecoin.address,
       stablecoin.decimals,
       this.config.vusdAddress,
       18,
-      stablecoinAmount
+      stablecoinAmount,
+      dexQuote,
+      false // stablecoin is input
     );
   }
 
@@ -44,64 +61,97 @@ export class SwapBuilder {
     srcDecimals: number,
     destToken: string,
     destDecimals: number,
-    amount: bigint
+    amount: bigint,
+    dexQuote: DexQuoteResult,
+    vusdIsInput: boolean
   ): Promise<SwapParams> {
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (this.config.aggregatorApiKey) {
-      headers["X-API-KEY"] = this.config.aggregatorApiKey;
+    const { source } = dexQuote;
+
+    // Aggregator sources — use the adapter's buildSwap
+    const adapter = this.adapterMap.get(source);
+    if (adapter) {
+      return adapter.buildSwap({
+        srcToken,
+        destToken,
+        amount,
+        srcDecimals,
+        destDecimals,
+        chainId: this.config.chainId,
+        receiver: this.config.vusdArbitrageAddress,
+        slippageBps: this.config.slippageBps,
+      });
     }
 
-    // Step 1: Get price quote
-    const priceUrl = new URL(`${this.config.aggregatorApiUrl}/prices`);
-    priceUrl.searchParams.set("srcToken", srcToken);
-    priceUrl.searchParams.set("destToken", destToken);
-    priceUrl.searchParams.set("amount", amount.toString());
-    priceUrl.searchParams.set("srcDecimals", srcDecimals.toString());
-    priceUrl.searchParams.set("destDecimals", destDecimals.toString());
-    priceUrl.searchParams.set("network", this.config.chainId.toString());
+    // Uniswap V3 — build calldata locally
+    if (source === "uniswap_v3") {
+      if (!dexQuote.feeTier) {
+        throw new Error("Uniswap V3 quote missing feeTier");
+      }
 
-    const priceResponse = await fetch(priceUrl.toString(), { headers });
-    if (!priceResponse.ok) {
-      throw new Error(`Price quote failed: ${priceResponse.status} ${await priceResponse.text()}`);
+      // Get a fresh quote for the exact swap amount
+      const freshQuote = await this.dexQuoter.quoteUniswapV3(
+        srcToken,
+        destToken,
+        amount,
+        destDecimals,
+        srcDecimals
+      );
+      if (!freshQuote) {
+        throw new Error("Uniswap V3 fresh quote failed");
+      }
+
+      const expectedOut = BigInt(
+        Math.floor(freshQuote.price * Number(amount) / (10 ** srcDecimals) * (10 ** destDecimals))
+      );
+      const minAmountOut = (expectedOut * BigInt(10000 - this.config.slippageBps)) / 10000n;
+
+      return this.dexQuoter.buildUniswapV3Swap(
+        srcToken,
+        destToken,
+        amount,
+        dexQuote.feeTier,
+        minAmountOut,
+        this.config.vusdArbitrageAddress
+      );
     }
 
-    const priceData = await priceResponse.json();
-    const expectedOutput = BigInt(priceData.priceRoute.destAmount);
-    const minAmountOut =
-      (expectedOutput * BigInt(10000 - this.config.slippageBps)) / 10000n;
+    // Curve — build calldata locally
+    if (source === "curve") {
+      if (!dexQuote.poolAddress || dexQuote.vusdIndex === undefined || dexQuote.stablecoinIndex === undefined) {
+        throw new Error("Curve quote missing pool config");
+      }
 
-    // Step 2: Get transaction calldata
-    const txUrl = new URL(`${this.config.aggregatorApiUrl}/transactions/${this.config.chainId}`);
+      // Determine correct indices based on swap direction
+      const i = vusdIsInput ? dexQuote.vusdIndex : dexQuote.stablecoinIndex;
+      const j = vusdIsInput ? dexQuote.stablecoinIndex : dexQuote.vusdIndex;
 
-    const txBody = {
-      srcToken,
-      destToken,
-      srcAmount: amount.toString(),
-      destAmount: expectedOutput.toString(),
-      priceRoute: priceData.priceRoute,
-      userAddress: this.config.vusdArbitrageAddress,
-      receiver: this.config.vusdArbitrageAddress,
-      srcDecimals,
-      destDecimals,
-    };
+      // Get a fresh quote for the exact swap amount
+      const stablecoinAddress = vusdIsInput ? destToken : srcToken;
+      const freshQuote = await this.dexQuoter.quoteCurve(
+        stablecoinAddress,
+        amount,
+        destDecimals,
+        srcDecimals,
+        vusdIsInput
+      );
+      if (!freshQuote) {
+        throw new Error("Curve fresh quote failed");
+      }
 
-    const txResponse = await fetch(txUrl.toString(), {
-      method: "POST",
-      headers,
-      body: JSON.stringify(txBody),
-    });
+      const expectedOut = BigInt(
+        Math.floor(freshQuote.price * Number(amount) / (10 ** srcDecimals) * (10 ** destDecimals))
+      );
+      const minAmountOut = (expectedOut * BigInt(10000 - this.config.slippageBps)) / 10000n;
 
-    if (!txResponse.ok) {
-      throw new Error(`Transaction build failed: ${txResponse.status} ${await txResponse.text()}`);
+      return this.dexQuoter.buildCurveSwap(
+        dexQuote.poolAddress,
+        i,
+        j,
+        amount,
+        minAmountOut
+      );
     }
 
-    const txData = await txResponse.json();
-
-    return {
-      target: txData.to,
-      approveTarget: priceData.priceRoute.tokenTransferProxy || txData.to,
-      swapCalldata: txData.data,
-      minAmountOut,
-    };
+    throw new Error(`Cannot build swap for source "${source}" — no DEX route available`);
   }
 }

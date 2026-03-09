@@ -28,9 +28,32 @@ export interface FlashLoanProviderConfig {
   feeBps: number;
 }
 
+export type DexSource = "paraswap" | "1inch" | "0x" | "lifi" | "uniswap_v3" | "curve" | "default";
+
+export interface DexQuoteResult {
+  price: number;
+  source: DexSource;
+  /** Uniswap V3 fee tier that produced the quote */
+  feeTier?: number;
+  /** Curve pool address */
+  poolAddress?: string;
+  /** Curve VUSD index in pool */
+  vusdIndex?: number;
+  /** Curve stablecoin index in pool */
+  stablecoinIndex?: number;
+}
+
+export interface CurvePoolConfig {
+  poolAddress: string;
+  vusdIndex: number;
+  stablecoinIndex: number;
+}
+
 export interface PriceData {
   /** VUSD price on DEX in stablecoin terms (e.g., 0.98 means 1 VUSD = 0.98 USDC) */
   vusdDexPrice: number;
+  /** Which DEX source provided the price */
+  dexQuote: DexQuoteResult;
   /** Gateway previewDeposit result: VUSD out for depositing testAmount of stablecoin */
   gatewayMintOutput: bigint;
   /** Gateway previewRedeem result: stablecoin out for redeeming testAmount of VUSD */
