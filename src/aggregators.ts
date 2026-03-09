@@ -44,7 +44,7 @@ export class OneInchAdapter implements AggregatorAdapter {
   constructor(private apiKey: string) {}
 
   private baseUrl(chainId: number): string {
-    return `https://api.1inch.dev/swap/v6.0/${chainId}`;
+    return `https://api.1inch.com/swap/v6.1/${chainId}`;
   }
 
   private headers(): Record<string, string> {
@@ -112,7 +112,7 @@ export class ZeroXAdapter implements AggregatorAdapter {
   private headers(): Record<string, string> {
     return {
       "0x-api-key": this.apiKey,
-      "0x-version": "2",
+      "0x-version": "v2",
       Accept: "application/json",
     };
   }
@@ -150,14 +150,11 @@ export class ZeroXAdapter implements AggregatorAdapter {
     }
     const data = await res.json();
 
-    const minAmountOut =
-      (BigInt(data.buyAmount) * BigInt(10000 - p.slippageBps)) / 10000n;
-
     return {
       target: data.transaction.to,
-      approveTarget: data.issues?.allowance?.spender || data.transaction.to,
+      approveTarget: data.allowanceTarget || data.issues?.allowance?.spender || data.transaction.to,
       swapCalldata: data.transaction.data,
-      minAmountOut,
+      minAmountOut: BigInt(data.minBuyAmount),
     };
   }
 }
@@ -171,7 +168,7 @@ export class LiFiAdapter implements AggregatorAdapter {
 
   async getQuote(p: QuoteParams): Promise<bigint | null> {
     try {
-      const url = new URL("https://li.fi/v1/quote");
+      const url = new URL("https://li.quest/v1/quote");
       url.searchParams.set("fromChain", p.chainId.toString());
       url.searchParams.set("toChain", p.chainId.toString());
       url.searchParams.set("fromToken", p.srcToken);
@@ -195,7 +192,7 @@ export class LiFiAdapter implements AggregatorAdapter {
   }
 
   async buildSwap(p: SwapBuildParams): Promise<SwapParams> {
-    const url = new URL("https://li.fi/v1/quote");
+    const url = new URL("https://li.quest/v1/quote");
     url.searchParams.set("fromChain", p.chainId.toString());
     url.searchParams.set("toChain", p.chainId.toString());
     url.searchParams.set("fromToken", p.srcToken);

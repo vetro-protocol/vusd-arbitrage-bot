@@ -21,22 +21,26 @@ Flashloan-funded arbitrage between [Vetro Gateway](https://vetro.finance) mint/r
 contracts/           Solidity contracts (Foundry)
   VUSDArbitrage.sol  Core arbitrage contract
   interfaces/        Gateway, Aave, Morpho, Balancer interfaces
-script/              Foundry deployment script
-test/                Unit tests + mainnet fork tests
+script/              Foundry deployment scripts
+test/                Solidity unit tests + mainnet fork tests
+test/mocks/          Mock contracts (Gateway, DEX, ERC20, Morpho)
+test/e2e/            TypeScript E2E tests (Anvil + Vitest)
 src/                 TypeScript keeper bot
   index.ts           Entry point
   keeper.ts          Main monitoring loop
-  priceMonitor.ts    DEX price + Gateway preview queries
+  priceMonitor.ts    Multi-source DEX price discovery
   profitCalculator.ts  Opportunity evaluation
-  swapBuilder.ts     Paraswap API integration
+  swapBuilder.ts     Multi-DEX swap routing
   executor.ts        staticCall simulation + tx execution
+  aggregators.ts     DEX aggregator adapters (1inch, 0x, LiFi)
+  dexQuoter.ts       On-chain quoters (Uniswap V3, Curve)
   config.ts          Environment config loader
   types.ts           Shared types
 ```
 
 ## Prerequisites
 
-- [Foundry](https://getfoundry.sh/) (forge, cast)
+- [Foundry](https://getfoundry.sh/) (forge, anvil, cast)
 - Node.js >= 18
 - Ethereum RPC URL (Alchemy, Infura, etc.)
 
@@ -65,6 +69,22 @@ forge test --mc VUSDArbitrageTest -vv
 # Run mainnet fork tests (5 tests, requires RPC)
 ETHEREUM_RPC_URL=<your-rpc> forge test --mc VUSDArbitrageForkTest -vvv
 ```
+
+## E2E Tests (Off-Chain Pipeline)
+
+Tests the full TypeScript pipeline (PriceMonitor → ProfitCalculator → SwapBuilder → Executor) against mock contracts deployed to a local Anvil instance.
+
+```bash
+npm run test:e2e
+```
+
+This automatically:
+1. Starts Anvil (local Ethereum node)
+2. Deploys mock contracts via `forge script`
+3. Runs 4 test scenarios (MINT_AND_SELL, BUY_AND_REDEEM, at-peg skip, below-threshold skip)
+4. Shuts down Anvil
+
+Requires Foundry installed (`anvil` and `forge` commands available).
 
 ## Deploy Contract
 
@@ -98,6 +118,20 @@ The keeper will:
 3. Simulate via `staticCall` before executing
 4. Submit tx if simulated profit exceeds `MIN_PROFIT_USD`
 
+## DEX Price Sources
+
+The bot uses a multi-source fallback chain for price discovery and swap routing:
+
+| Priority | Source | Type | API Key Required |
+|----------|--------|------|------------------|
+| 1 | 1inch | Aggregator API | Yes |
+| 2 | 0x / Matcha | Aggregator API | Yes |
+| 3 | LiFi | Aggregator API | No |
+| 4 | Uniswap V3 | On-chain quoter | No |
+| 5 | Curve | On-chain quoter | No |
+
+Each source provides both price quotes and swap calldata. Enable/disable individual sources via `ENABLE_*` env vars.
+
 ## Key Configuration (.env)
 
 | Variable | Description |
@@ -110,7 +144,14 @@ The keeper will:
 | `MIN_PROFIT_USD` | Minimum profit to execute (default: 5) |
 | `MAX_GAS_PRICE_GWEI` | Skip if gas above this (default: 50) |
 | `SLIPPAGE_BPS` | DEX slippage tolerance (default: 50 = 0.5%) |
-| `KEEPER_SHARE_BPS` | Keeper profit share in BPS (set on contract) |
+| `ONEINCH_API_KEY` | 1inch API key (from https://portal.1inch.dev) |
+| `ZEROX_API_KEY` | 0x API key (from https://0x.org/pricing) |
+| `LIFI_ENABLED` | Enable LiFi aggregator (default: false) |
+| `ENABLE_ONEINCH` | Enable 1inch source (default: true) |
+| `ENABLE_ZEROX` | Enable 0x source (default: true) |
+| `ENABLE_LIFI` | Enable LiFi source (default: true) |
+| `ENABLE_UNISWAP_V3` | Enable Uniswap V3 on-chain quoter (default: true) |
+| `ENABLE_CURVE` | Enable Curve on-chain quoter (default: true) |
 
 ## Contract Admin Functions
 
