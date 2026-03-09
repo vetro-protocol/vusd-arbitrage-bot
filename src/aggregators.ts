@@ -210,15 +210,12 @@ export class LiFiAdapter implements AggregatorAdapter {
     }
     const data = await res.json();
 
-    const minAmountOut =
-      (BigInt(data.estimate.toAmount) * BigInt(10000 - p.slippageBps)) / 10000n;
-
     return {
       target: data.transactionRequest.to,
       approveTarget:
         data.estimate.approvalAddress || data.transactionRequest.to,
       swapCalldata: data.transactionRequest.data,
-      minAmountOut,
+      minAmountOut: BigInt(data.estimate.toAmountMin),
     };
   }
 }
