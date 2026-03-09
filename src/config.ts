@@ -20,11 +20,7 @@ export interface Config {
   // Flash loan providers (sorted by fee ascending — Morpho/Balancer first)
   flashLoanProviders: FlashLoanProviderConfig[];
 
-  // DEX aggregator (Paraswap — primary)
-  aggregatorApiUrl: string;
-  aggregatorApiKey?: string;
-
-  // Fallback aggregator API keys (optional — each enables a fallback)
+  // DEX aggregator API keys (optional — each enables an aggregator)
   oneInchApiKey?: string;
   zeroXApiKey?: string;
   lifiEnabled: boolean;
@@ -35,7 +31,6 @@ export interface Config {
   curvePoolConfigs: Record<string, CurvePoolConfig>;
 
   // Per-source enable/disable flags
-  enableParaswap: boolean;
   enableOneInch: boolean;
   enableZeroX: boolean;
   enableLifi: boolean;
@@ -95,10 +90,6 @@ export function loadConfig(): Config {
 
     flashLoanProviders: buildProviderList(),
 
-    aggregatorApiUrl:
-      process.env.AGGREGATOR_API_URL || "https://api.paraswap.io",
-    aggregatorApiKey: process.env.AGGREGATOR_API_KEY,
-
     oneInchApiKey: process.env.ONEINCH_API_KEY,
     zeroXApiKey: process.env.ZEROX_API_KEY,
     lifiEnabled: process.env.LIFI_ENABLED === "true",
@@ -111,7 +102,6 @@ export function loadConfig(): Config {
       "0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45",
     curvePoolConfigs: parseCurvePoolConfigs(),
 
-    enableParaswap: process.env.ENABLE_PARASWAP !== "false",
     enableOneInch: process.env.ENABLE_ONEINCH !== "false",
     enableZeroX: process.env.ENABLE_ZEROX !== "false",
     enableLifi: process.env.ENABLE_LIFI !== "false",

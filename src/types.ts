@@ -29,7 +29,6 @@ export interface FlashLoanProviderConfig {
 }
 
 export type DexSource =
-  | "paraswap"
   | "1inch"
   | "0x"
   | "lifi"

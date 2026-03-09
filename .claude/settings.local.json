@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cat /Users/manoj/work/vetro-contracts/deploy/scripts/mainnet/*.json)",
+      "Bash(find /Users/manoj/work/vetro-contracts -type f -name \".env*\" -exec cat {} ;)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(forge init --no-commit --no-git)",
+      "Bash(~/.foundry/bin/forge init --no-commit --no-git /Users/manoj/work/VUSD_Arbitrage_bot)",
+      "Bash(~/.foundry/bin/forge init /Users/manoj/work/VUSD_Arbitrage_bot --no-git)",
+      "Bash(~/.foundry/bin/forge init /Users/manoj/work/VUSD_Arbitrage_bot --no-git --force)",
+      "Bash(~/.foundry/bin/forge install OpenZeppelin/openzeppelin-contracts --no-git)",
+      "Bash(~/.foundry/bin/forge build)",
+      "Bash(~/.foundry/bin/forge test -vv)",
+      "Bash(~/.foundry/bin/forge test --mc VUSDArbitrageTest -vv)",
+      "Bash(ETHEREUM_RPC_URL=\"https://eth.llamarpc.com\" ~/.foundry/bin/forge test --mc VUSDArbitrageForkTest -vvv)",
+      "Bash(ETHEREUM_RPC_URL=\"https://rpc.ankr.com/eth\" ~/.foundry/bin/forge test --mc VUSDArbitrageForkTest -vvv)",
+      "Bash(ETHEREUM_RPC_URL=\"https://ethereum-rpc.publicnode.com\" ~/.foundry/bin/forge test --mc VUSDArbitrageForkTest -vvv)",
+      "Bash(ETHEREUM_RPC_URL=\"https://mainnet.infura.io/v3/79eb72543142417f95992ac17d733068\" ~/.foundry/bin/forge test --mc VUSDArbitrageForkTest -vvv)",
+      "Bash(ETHEREUM_RPC_URL=\"https://ethereum-rpc.publicnode.com\" ~/.foundry/bin/forge test --mc VUSDArbitrageForkTest --mt test_fork_aaveV3_mintAndSell --fork-block-number 21975000 -vvv)",
+      "Bash(ETHEREUM_RPC_URL=\"https://ethereum-rpc.publicnode.com\" ~/.foundry/bin/forge test --mc VUSDArbitrageForkTest --mt test_fork_morpho_mintAndSell -vvv)",
+      "Bash(ETHEREUM_RPC_URL=\"https://ethereum-rpc.publicnode.com\" ~/.foundry/bin/forge test --mc VUSDArbitrageForkTest --mt test_fork_morpho_buyAndRedeem -vvv)",
+      "Bash(ETHEREUM_RPC_URL=\"https://ethereum-rpc.publicnode.com\" ~/.foundry/bin/forge test --mc VUSDArbitrageForkTest --mt test_fork_aaveV3_mintAndSell -vvv)",
+      "Bash(ETHEREUM_RPC_URL=\"https://eth-mainnet.g.alchemy.com/v2/QLc48ptvsz_WFIKXP_VMk3IX2AbqTBmn\" ~/.foundry/bin/forge test --mc VUSDArbitrageForkTest -vvv)",
+      "Bash(npm install)",
+      "Bash(export NVM_DIR=\"$HOME/.nvm\")",
+      "Bash([ -s \"$NVM_DIR/nvm.sh\" ])",
+      "Bash(. \"$NVM_DIR/nvm.sh\")",
+      "Bash(nvm use 20)",
+      "Bash(node dist/index.js)",
+      "Bash(echo \"exit code: $?\")",
+      "Bash(~/.foundry/bin/forge test --mc VUSDArbitrageTest -v)",
+      "Bash(git init -b main)",
+      "Bash(git status -u)",
+      "Bash(git add .gitignore .env.example .gitmodules README.md foundry.toml package.json package-lock.json tsconfig.json contracts/ script/ src/ test/ lib/forge-std lib/openzeppelin-contracts)",
+      "Bash(npx tsc --noEmit)"
+    ]
+  }
+}

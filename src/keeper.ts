@@ -7,7 +7,6 @@ import {Executor} from "./executor";
 import {ArbDirection, ArbOpportunity} from "./types";
 import {
   AggregatorAdapter,
-  ParaswapAdapter,
   OneInchAdapter,
   ZeroXAdapter,
   LiFiAdapter,
@@ -24,12 +23,6 @@ function sleep(ms: number): Promise<void> {
  */
 function buildAggregators(config: Config): AggregatorAdapter[] {
   const adapters: AggregatorAdapter[] = [];
-
-  if (config.enableParaswap) {
-    adapters.push(
-      new ParaswapAdapter(config.aggregatorApiUrl, config.aggregatorApiKey),
-    );
-  }
 
   if (config.enableOneInch && config.oneInchApiKey) {
     adapters.push(new OneInchAdapter(config.oneInchApiKey));
