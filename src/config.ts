@@ -1,4 +1,9 @@
-import { FlashLoanProvider, StablecoinConfig, FlashLoanProviderConfig, CurvePoolConfig } from "./types";
+import {
+  FlashLoanProvider,
+  StablecoinConfig,
+  FlashLoanProviderConfig,
+  CurvePoolConfig,
+} from "./types";
 
 export interface Config {
   rpcUrl: string;
@@ -73,12 +78,16 @@ export function loadConfig(): Config {
 
     stablecoins: [
       {
-        address: process.env.USDC_ADDRESS || "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+        address:
+          process.env.USDC_ADDRESS ||
+          "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
         symbol: "USDC",
         decimals: 6,
       },
       {
-        address: process.env.USDT_ADDRESS || "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+        address:
+          process.env.USDT_ADDRESS ||
+          "0xdAC17F958D2ee523a2206206994597C13D831ec7",
         symbol: "USDT",
         decimals: 6,
       },
@@ -86,7 +95,8 @@ export function loadConfig(): Config {
 
     flashLoanProviders: buildProviderList(),
 
-    aggregatorApiUrl: process.env.AGGREGATOR_API_URL || "https://api.paraswap.io",
+    aggregatorApiUrl:
+      process.env.AGGREGATOR_API_URL || "https://api.paraswap.io",
     aggregatorApiKey: process.env.AGGREGATOR_API_KEY,
 
     oneInchApiKey: process.env.ONEINCH_API_KEY,
@@ -94,9 +104,11 @@ export function loadConfig(): Config {
     lifiEnabled: process.env.LIFI_ENABLED === "true",
 
     uniswapV3QuoterAddress:
-      process.env.UNISWAP_V3_QUOTER || "0x61fFE014bA17989E743c5F6cB21bF9697530B21e",
+      process.env.UNISWAP_V3_QUOTER ||
+      "0x61fFE014bA17989E743c5F6cB21bF9697530B21e",
     uniswapV3RouterAddress:
-      process.env.UNISWAP_V3_ROUTER || "0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45",
+      process.env.UNISWAP_V3_ROUTER ||
+      "0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45",
     curvePoolConfigs: parseCurvePoolConfigs(),
 
     enableParaswap: process.env.ENABLE_PARASWAP !== "false",

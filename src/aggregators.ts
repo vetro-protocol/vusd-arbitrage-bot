@@ -1,4 +1,4 @@
-import { DexSource, SwapParams } from "./types";
+import {DexSource, SwapParams} from "./types";
 
 /**
  * Common interface for DEX aggregator APIs.
@@ -43,11 +43,11 @@ export class ParaswapAdapter implements AggregatorAdapter {
 
   constructor(
     private apiUrl: string,
-    private apiKey?: string
+    private apiKey?: string,
   ) {}
 
   private headers(): Record<string, string> {
-    const h: Record<string, string> = { "Content-Type": "application/json" };
+    const h: Record<string, string> = {"Content-Type": "application/json"};
     if (this.apiKey) h["X-API-KEY"] = this.apiKey;
     return h;
   }
@@ -62,7 +62,7 @@ export class ParaswapAdapter implements AggregatorAdapter {
       url.searchParams.set("destDecimals", p.destDecimals.toString());
       url.searchParams.set("network", p.chainId.toString());
 
-      const res = await fetch(url.toString(), { headers: this.headers() });
+      const res = await fetch(url.toString(), {headers: this.headers()});
       if (!res.ok) return null;
 
       const data = await res.json();
@@ -84,13 +84,14 @@ export class ParaswapAdapter implements AggregatorAdapter {
     priceUrl.searchParams.set("destDecimals", p.destDecimals.toString());
     priceUrl.searchParams.set("network", p.chainId.toString());
 
-    const priceRes = await fetch(priceUrl.toString(), { headers });
+    const priceRes = await fetch(priceUrl.toString(), {headers});
     if (!priceRes.ok) {
       throw new Error(`Paraswap price failed: ${priceRes.status}`);
     }
     const priceData = await priceRes.json();
     const expectedOutput = BigInt(priceData.priceRoute.destAmount);
-    const minAmountOut = (expectedOutput * BigInt(10000 - p.slippageBps)) / 10000n;
+    const minAmountOut =
+      (expectedOutput * BigInt(10000 - p.slippageBps)) / 10000n;
 
     // Step 2: transaction calldata
     const txUrl = new URL(`${this.apiUrl}/transactions/${p.chainId}`);
@@ -152,7 +153,7 @@ export class OneInchAdapter implements AggregatorAdapter {
       url.searchParams.set("dst", p.destToken);
       url.searchParams.set("amount", p.amount.toString());
 
-      const res = await fetch(url.toString(), { headers: this.headers() });
+      const res = await fetch(url.toString(), {headers: this.headers()});
       if (!res.ok) return null;
 
       const data = await res.json();
@@ -172,14 +173,15 @@ export class OneInchAdapter implements AggregatorAdapter {
     url.searchParams.set("slippage", (p.slippageBps / 100).toString());
     url.searchParams.set("disableEstimate", "true");
 
-    const res = await fetch(url.toString(), { headers: this.headers() });
+    const res = await fetch(url.toString(), {headers: this.headers()});
     if (!res.ok) {
       throw new Error(`1inch swap build failed: ${res.status}`);
     }
     const data = await res.json();
 
     const expectedOutput = BigInt(data.dstAmount);
-    const minAmountOut = (expectedOutput * BigInt(10000 - p.slippageBps)) / 10000n;
+    const minAmountOut =
+      (expectedOutput * BigInt(10000 - p.slippageBps)) / 10000n;
 
     return {
       target: data.tx.to,
@@ -215,7 +217,7 @@ export class ZeroXAdapter implements AggregatorAdapter {
       url.searchParams.set("sellAmount", p.amount.toString());
       url.searchParams.set("chainId", p.chainId.toString());
 
-      const res = await fetch(url.toString(), { headers: this.headers() });
+      const res = await fetch(url.toString(), {headers: this.headers()});
       if (!res.ok) return null;
 
       const data = await res.json();
@@ -234,13 +236,14 @@ export class ZeroXAdapter implements AggregatorAdapter {
     url.searchParams.set("taker", p.receiver);
     url.searchParams.set("slippageBps", p.slippageBps.toString());
 
-    const res = await fetch(url.toString(), { headers: this.headers() });
+    const res = await fetch(url.toString(), {headers: this.headers()});
     if (!res.ok) {
       throw new Error(`0x swap build failed: ${res.status}`);
     }
     const data = await res.json();
 
-    const minAmountOut = (BigInt(data.buyAmount) * BigInt(10000 - p.slippageBps)) / 10000n;
+    const minAmountOut =
+      (BigInt(data.buyAmount) * BigInt(10000 - p.slippageBps)) / 10000n;
 
     return {
       target: data.transaction.to,
@@ -266,10 +269,13 @@ export class LiFiAdapter implements AggregatorAdapter {
       url.searchParams.set("fromToken", p.srcToken);
       url.searchParams.set("toToken", p.destToken);
       url.searchParams.set("fromAmount", p.amount.toString());
-      url.searchParams.set("fromAddress", "0x0000000000000000000000000000000000000001");
+      url.searchParams.set(
+        "fromAddress",
+        "0x0000000000000000000000000000000000000001",
+      );
 
       const res = await fetch(url.toString(), {
-        headers: { Accept: "application/json" },
+        headers: {Accept: "application/json"},
       });
       if (!res.ok) return null;
 
@@ -292,7 +298,7 @@ export class LiFiAdapter implements AggregatorAdapter {
     url.searchParams.set("slippage", (p.slippageBps / 10000).toFixed(4));
 
     const res = await fetch(url.toString(), {
-      headers: { Accept: "application/json" },
+      headers: {Accept: "application/json"},
     });
     if (!res.ok) {
       throw new Error(`LiFi swap build failed: ${res.status}`);
@@ -304,7 +310,8 @@ export class LiFiAdapter implements AggregatorAdapter {
 
     return {
       target: data.transactionRequest.to,
-      approveTarget: data.estimate.approvalAddress || data.transactionRequest.to,
+      approveTarget:
+        data.estimate.approvalAddress || data.transactionRequest.to,
       swapCalldata: data.transactionRequest.data,
       minAmountOut,
     };

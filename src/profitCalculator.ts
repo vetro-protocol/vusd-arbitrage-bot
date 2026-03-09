@@ -1,5 +1,5 @@
-import { ethers } from "ethers";
-import { ArbDirection, PriceData, FlashLoanProviderConfig } from "./types";
+import {ethers} from "ethers";
+import {ArbDirection, PriceData, FlashLoanProviderConfig} from "./types";
 
 export class ProfitCalculator {
   constructor(private minProfitUsd: number) {}
@@ -11,9 +11,13 @@ export class ProfitCalculator {
   evaluate(
     priceData: PriceData,
     provider: FlashLoanProviderConfig,
-    estimatedGasCostUsd: number
-  ): { direction: ArbDirection; estimatedProfitUsd: number; spreadBps: number } | null {
-    const { vusdDexPrice, mintFeeBps, redeemFeeBps, stablecoin } = priceData;
+    estimatedGasCostUsd: number,
+  ): {
+    direction: ArbDirection;
+    estimatedProfitUsd: number;
+    spreadBps: number;
+  } | null {
+    const {vusdDexPrice, mintFeeBps, redeemFeeBps, stablecoin} = priceData;
     const flashFeeBps = provider.feeBps;
 
     // VUSD > $1 on DEX → mint and sell
@@ -36,9 +40,13 @@ export class ProfitCalculator {
     // VUSD < $1 on DEX → buy and redeem
     if (vusdDexPrice < 1.0) {
       // Profit per $1: buy at vusdDexPrice, gateway redeems at 1 - redeemFee - flashFee
-      const gatewayRedeemReturn = 1 - redeemFeeBps / 10000 - flashFeeBps / 10000;
-      const spreadBps = Math.round((gatewayRedeemReturn - vusdDexPrice) * 10000);
-      const estimatedProfitPer1000 = (gatewayRedeemReturn - vusdDexPrice) * 1000;
+      const gatewayRedeemReturn =
+        1 - redeemFeeBps / 10000 - flashFeeBps / 10000;
+      const spreadBps = Math.round(
+        (gatewayRedeemReturn - vusdDexPrice) * 10000,
+      );
+      const estimatedProfitPer1000 =
+        (gatewayRedeemReturn - vusdDexPrice) * 1000;
       const estimatedProfitUsd = estimatedProfitPer1000 - estimatedGasCostUsd;
 
       if (estimatedProfitUsd >= this.minProfitUsd && spreadBps > 0) {
@@ -58,10 +66,7 @@ export class ProfitCalculator {
    * Start conservative, increase as long as marginal profit stays positive.
    * The real check is done via staticCall simulation.
    */
-  suggestFlashAmount(
-    priceData: PriceData,
-    maxAmount: bigint
-  ): bigint {
+  suggestFlashAmount(priceData: PriceData, maxAmount: bigint): bigint {
     // Start with 10k, scale up based on price deviation
     const deviation = Math.abs(priceData.vusdDexPrice - 1.0);
     const decimals = priceData.stablecoin.decimals;

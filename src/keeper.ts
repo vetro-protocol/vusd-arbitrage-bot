@@ -1,12 +1,18 @@
-import { ethers } from "ethers";
-import { Config } from "./config";
-import { PriceMonitor } from "./priceMonitor";
-import { ProfitCalculator } from "./profitCalculator";
-import { SwapBuilder } from "./swapBuilder";
-import { Executor } from "./executor";
-import { ArbDirection, ArbOpportunity } from "./types";
-import { AggregatorAdapter, ParaswapAdapter, OneInchAdapter, ZeroXAdapter, LiFiAdapter } from "./aggregators";
-import { DexQuoter } from "./dexQuoter";
+import {ethers} from "ethers";
+import {Config} from "./config";
+import {PriceMonitor} from "./priceMonitor";
+import {ProfitCalculator} from "./profitCalculator";
+import {SwapBuilder} from "./swapBuilder";
+import {Executor} from "./executor";
+import {ArbDirection, ArbOpportunity} from "./types";
+import {
+  AggregatorAdapter,
+  ParaswapAdapter,
+  OneInchAdapter,
+  ZeroXAdapter,
+  LiFiAdapter,
+} from "./aggregators";
+import {DexQuoter} from "./dexQuoter";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -20,7 +26,9 @@ function buildAggregators(config: Config): AggregatorAdapter[] {
   const adapters: AggregatorAdapter[] = [];
 
   if (config.enableParaswap) {
-    adapters.push(new ParaswapAdapter(config.aggregatorApiUrl, config.aggregatorApiKey));
+    adapters.push(
+      new ParaswapAdapter(config.aggregatorApiUrl, config.aggregatorApiKey),
+    );
   }
 
   if (config.enableOneInch && config.oneInchApiKey) {
@@ -54,28 +62,39 @@ export class Keeper {
       this.provider,
       config.uniswapV3QuoterAddress,
       config.uniswapV3RouterAddress,
-      config.curvePoolConfigs
+      config.curvePoolConfigs,
     );
 
-    this.priceMonitor = new PriceMonitor(this.provider, config, aggregators, dexQuoter);
+    this.priceMonitor = new PriceMonitor(
+      this.provider,
+      config,
+      aggregators,
+      dexQuoter,
+    );
     this.profitCalculator = new ProfitCalculator(config.minProfitUsd);
     this.swapBuilder = new SwapBuilder(config, aggregators, dexQuoter);
     this.executor = new Executor(this.provider, config);
 
     console.log(
-      `[Keeper] Price sources: ${[
-        ...aggregators.map((a) => a.name),
-        ...(config.enableUniswapV3 ? ["uniswap_v3"] : []),
-        ...(config.enableCurve ? ["curve"] : []),
-      ].join(" → ") || "none"} → default(1.0)`
+      `[Keeper] Price sources: ${
+        [
+          ...aggregators.map((a) => a.name),
+          ...(config.enableUniswapV3 ? ["uniswap_v3"] : []),
+          ...(config.enableCurve ? ["curve"] : []),
+        ].join(" → ") || "none"
+      } → default(1.0)`,
     );
   }
 
   async start(): Promise<void> {
     this.running = true;
     console.log("Keeper started. Monitoring VUSD price...");
-    console.log(`  Stablecoins: ${this.config.stablecoins.map((s) => s.symbol).join(", ")}`);
-    console.log(`  Providers: ${this.config.flashLoanProviders.map((p) => `${p.address} (${p.feeBps}bps)`).join(", ")}`);
+    console.log(
+      `  Stablecoins: ${this.config.stablecoins.map((s) => s.symbol).join(", ")}`,
+    );
+    console.log(
+      `  Providers: ${this.config.flashLoanProviders.map((p) => `${p.address} (${p.feeBps}bps)`).join(", ")}`,
+    );
     console.log(`  Min profit: $${this.config.minProfitUsd}`);
     console.log(`  Poll interval: ${this.config.pollIntervalMs}ms`);
 
@@ -96,7 +115,7 @@ export class Keeper {
         const priceData = await this.priceMonitor.getPriceData(stablecoin);
         console.log(
           `[${stablecoin.symbol}] VUSD DEX price: ${priceData.vusdDexPrice.toFixed(4)} (via ${priceData.dexQuote.source}), ` +
-            `mint fee: ${priceData.mintFeeBps}bps, redeem fee: ${priceData.redeemFeeBps}bps`
+            `mint fee: ${priceData.mintFeeBps}bps, redeem fee: ${priceData.redeemFeeBps}bps`,
         );
 
         // 2. Select best provider
@@ -108,38 +127,58 @@ export class Keeper {
 
         // 3. Evaluate opportunity
         const estimatedGasCostUsd = 5.0; // Conservative estimate
-        const evaluation = this.profitCalculator.evaluate(priceData, provider, estimatedGasCostUsd);
+        const evaluation = this.profitCalculator.evaluate(
+          priceData,
+          provider,
+          estimatedGasCostUsd,
+        );
 
         if (!evaluation) continue;
 
         // Skip if DEX source is "default" — no real price data, can't build swap
         if (priceData.dexQuote.source === "default") {
           console.warn(
-            `[${stablecoin.symbol}] Opportunity detected but no DEX route available (all sources failed)`
+            `[${stablecoin.symbol}] Opportunity detected but no DEX route available (all sources failed)`,
           );
           continue;
         }
 
         console.log(
           `[${stablecoin.symbol}] Opportunity found: ${ArbDirection[evaluation.direction]}, ` +
-            `spread: ${evaluation.spreadBps}bps, est. profit: $${evaluation.estimatedProfitUsd.toFixed(2)}`
+            `spread: ${evaluation.spreadBps}bps, est. profit: $${evaluation.estimatedProfitUsd.toFixed(2)}`,
         );
 
         // 4. Determine flash amount
-        const flashAmount = this.profitCalculator.suggestFlashAmount(priceData, this.config.maxFlashAmount);
+        const flashAmount = this.profitCalculator.suggestFlashAmount(
+          priceData,
+          this.config.maxFlashAmount,
+        );
 
         // 5. Build swap params (routed through same DEX that quoted the price)
         let swapParams;
         if (evaluation.direction === ArbDirection.MINT_AND_SELL) {
           const vusdEstimate = priceData.gatewayMintOutput;
-          const scaledVusd = (vusdEstimate * flashAmount) / ethers.parseUnits("10000", stablecoin.decimals);
-          swapParams = await this.swapBuilder.buildSellVusdSwap(scaledVusd, stablecoin, priceData.dexQuote);
+          const scaledVusd =
+            (vusdEstimate * flashAmount) /
+            ethers.parseUnits("10000", stablecoin.decimals);
+          swapParams = await this.swapBuilder.buildSellVusdSwap(
+            scaledVusd,
+            stablecoin,
+            priceData.dexQuote,
+          );
         } else {
-          swapParams = await this.swapBuilder.buildBuyVusdSwap(flashAmount, stablecoin, priceData.dexQuote);
+          swapParams = await this.swapBuilder.buildBuyVusdSwap(
+            flashAmount,
+            stablecoin,
+            priceData.dexQuote,
+          );
         }
 
         // 6. Build opportunity
-        const minProfit = ethers.parseUnits(String(this.config.minProfitUsd), stablecoin.decimals);
+        const minProfit = ethers.parseUnits(
+          String(this.config.minProfitUsd),
+          stablecoin.decimals,
+        );
 
         const opportunity: ArbOpportunity = {
           direction: evaluation.direction,
@@ -155,7 +194,9 @@ export class Keeper {
         // 7. Execute
         const receipt = await this.executor.execute(opportunity);
         if (receipt) {
-          console.log(`[${stablecoin.symbol}] Arb executed! Tx: ${receipt.hash}`);
+          console.log(
+            `[${stablecoin.symbol}] Arb executed! Tx: ${receipt.hash}`,
+          );
         }
       } catch (error) {
         console.error(`[${stablecoin.symbol}] Error:`, error);

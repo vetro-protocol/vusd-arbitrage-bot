@@ -1,5 +1,5 @@
-import { ethers } from "ethers";
-import { CurvePoolConfig, DexQuoteResult, SwapParams } from "./types";
+import {ethers} from "ethers";
+import {CurvePoolConfig, DexQuoteResult, SwapParams} from "./types";
 
 // Uniswap V3 QuoterV2 — quoteExactInputSingle is NOT a view function,
 // it reverts after computing. Must be called via staticCall.
@@ -29,7 +29,7 @@ export class DexQuoter {
     private provider: ethers.Provider,
     quoterAddress: string,
     routerAddress: string,
-    private curvePoolConfigs: Record<string, CurvePoolConfig>
+    private curvePoolConfigs: Record<string, CurvePoolConfig>,
   ) {
     this.quoter = new ethers.Contract(quoterAddress, QUOTER_V2_ABI, provider);
     this.routerAddress = routerAddress;
@@ -48,7 +48,7 @@ export class DexQuoter {
     tokenOut: string,
     amountIn: bigint,
     destDecimals: number,
-    srcDecimals: number
+    srcDecimals: number,
   ): Promise<DexQuoteResult | null> {
     let bestAmountOut = 0n;
     let bestFeeTier = 0;
@@ -62,7 +62,7 @@ export class DexQuoter {
           fee,
           sqrtPriceLimitX96: 0n,
         });
-        return { fee, amountOut: result.amountOut as bigint };
+        return {fee, amountOut: result.amountOut as bigint};
       } catch {
         return null;
       }
@@ -80,7 +80,9 @@ export class DexQuoter {
     if (bestAmountOut === 0n) return null;
 
     const price =
-      Number(bestAmountOut) / 10 ** destDecimals / (Number(amountIn) / 10 ** srcDecimals);
+      Number(bestAmountOut) /
+      10 ** destDecimals /
+      (Number(amountIn) / 10 ** srcDecimals);
 
     return {
       price,
@@ -98,7 +100,7 @@ export class DexQuoter {
     amountIn: bigint,
     feeTier: number,
     minAmountOut: bigint,
-    recipient: string
+    recipient: string,
   ): SwapParams {
     const routerIface = new ethers.Interface(SWAP_ROUTER_ABI);
     const swapCalldata = routerIface.encodeFunctionData("exactInputSingle", [
@@ -135,20 +137,26 @@ export class DexQuoter {
     destDecimals: number,
     srcDecimals: number,
     /** true = VUSD is tokenIn (sell direction), false = stablecoin is tokenIn (buy direction) */
-    vusdIsInput: boolean
+    vusdIsInput: boolean,
   ): Promise<DexQuoteResult | null> {
     const poolConfig = this.curvePoolConfigs[stablecoinAddress.toLowerCase()];
     if (!poolConfig) return null;
 
     try {
-      const pool = new ethers.Contract(poolConfig.poolAddress, CURVE_POOL_ABI, this.provider);
+      const pool = new ethers.Contract(
+        poolConfig.poolAddress,
+        CURVE_POOL_ABI,
+        this.provider,
+      );
       const i = vusdIsInput ? poolConfig.vusdIndex : poolConfig.stablecoinIndex;
       const j = vusdIsInput ? poolConfig.stablecoinIndex : poolConfig.vusdIndex;
 
       const amountOut: bigint = await pool.get_dy(i, j, amountIn);
 
       const price =
-        Number(amountOut) / 10 ** destDecimals / (Number(amountIn) / 10 ** srcDecimals);
+        Number(amountOut) /
+        10 ** destDecimals /
+        (Number(amountIn) / 10 ** srcDecimals);
 
       return {
         price,
@@ -170,10 +178,15 @@ export class DexQuoter {
     i: number,
     j: number,
     amountIn: bigint,
-    minAmountOut: bigint
+    minAmountOut: bigint,
   ): SwapParams {
     const poolIface = new ethers.Interface(CURVE_POOL_ABI);
-    const swapCalldata = poolIface.encodeFunctionData("exchange", [i, j, amountIn, minAmountOut]);
+    const swapCalldata = poolIface.encodeFunctionData("exchange", [
+      i,
+      j,
+      amountIn,
+      minAmountOut,
+    ]);
 
     return {
       target: poolAddress,

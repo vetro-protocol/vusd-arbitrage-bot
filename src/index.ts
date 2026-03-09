@@ -1,6 +1,6 @@
 import "dotenv/config";
-import { Keeper } from "./keeper";
-import { loadConfig } from "./config";
+import {Keeper} from "./keeper";
+import {loadConfig} from "./config";
 
 async function main() {
   const config = loadConfig();

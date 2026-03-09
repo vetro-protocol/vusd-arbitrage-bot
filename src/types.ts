@@ -28,7 +28,14 @@ export interface FlashLoanProviderConfig {
   feeBps: number;
 }
 
-export type DexSource = "paraswap" | "1inch" | "0x" | "lifi" | "uniswap_v3" | "curve" | "default";
+export type DexSource =
+  | "paraswap"
+  | "1inch"
+  | "0x"
+  | "lifi"
+  | "uniswap_v3"
+  | "curve"
+  | "default";
 
 export interface DexQuoteResult {
   price: number;
