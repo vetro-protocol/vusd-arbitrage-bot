@@ -189,7 +189,11 @@ export class DexQuoter {
         vusdIndex: poolConfig.vusdIndex,
         stablecoinIndex: poolConfig.stablecoinIndex,
       };
-    } catch {
+    } catch (error) {
+      console.warn(
+        `  [curve] Quote failed:`,
+        error instanceof Error ? error.message : error,
+      );
       return null;
     }
   }
@@ -317,7 +321,11 @@ export class DexQuoter {
         price,
         source: "curve_router",
       };
-    } catch {
+    } catch (error) {
+      console.warn(
+        `  [curve_router] Quote failed:`,
+        error instanceof Error ? error.message : error,
+      );
       return null;
     }
   }

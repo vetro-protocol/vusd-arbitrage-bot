@@ -1,3 +1,4 @@
+import {ethers} from "ethers";
 import {
   FlashLoanProvider,
   StablecoinConfig,
@@ -175,7 +176,7 @@ function parseCurvePoolConfigs(): Record<string, CurvePoolConfig> {
 function parseHop(raw: string): CurveRouterHop {
   const [pool, i, j, swapType, poolType, nCoins] = raw.split(":");
   return {
-    pool,
+    pool: ethers.getAddress(pool),
     i: parseInt(i),
     j: parseInt(j),
     swapType: parseInt(swapType),
