@@ -127,7 +127,7 @@ export class PriceMonitor {
       }
     }
 
-    // 3. Try Curve on-chain quoter
+    // 3. Try Curve on-chain quoter (direct pool)
     if (this.config.enableCurve) {
       const curveQuote = await this.dexQuoter.quoteCurve(
         stablecoin.address,
@@ -144,7 +144,24 @@ export class PriceMonitor {
       }
     }
 
-    // 4. All sources failed
+    // 4. Try Curve Router (multi-hop via crvUSD)
+    if (this.config.enableCurveRouter) {
+      const curveRouterQuote = await this.dexQuoter.quoteCurveRouter(
+        stablecoin.address,
+        vusdAmount,
+        stablecoin.decimals,
+        18,
+        true, // VUSD is input (sell direction for quoting)
+      );
+      if (curveRouterQuote) {
+        console.log(
+          `  [${stablecoin.symbol}] DEX price via curve_router: ${curveRouterQuote.price.toFixed(6)}`,
+        );
+        return curveRouterQuote;
+      }
+    }
+
+    // 5. All sources failed
     console.warn(
       `  [${stablecoin.symbol}] All DEX price sources failed, defaulting to 1.0`,
     );

@@ -164,6 +164,39 @@ export class SwapBuilder {
       );
     }
 
+    // Curve Router — multi-hop via crvUSD, build calldata locally
+    if (source === "curve_router") {
+      const stablecoinAddress = vusdIsInput ? destToken : srcToken;
+
+      // Get a fresh quote for the exact swap amount
+      const freshQuote = await this.dexQuoter.quoteCurveRouter(
+        stablecoinAddress,
+        amount,
+        destDecimals,
+        srcDecimals,
+        vusdIsInput,
+      );
+      if (!freshQuote) {
+        throw new Error("Curve Router fresh quote failed");
+      }
+
+      const expectedOut = BigInt(
+        Math.floor(
+          ((freshQuote.price * Number(amount)) / 10 ** srcDecimals) *
+            10 ** destDecimals,
+        ),
+      );
+      const minAmountOut =
+        (expectedOut * BigInt(10000 - this.config.slippageBps)) / 10000n;
+
+      return this.dexQuoter.buildCurveRouterSwap(
+        stablecoinAddress,
+        amount,
+        minAmountOut,
+        vusdIsInput,
+      );
+    }
+
     throw new Error(
       `Cannot build swap for source "${source}" — no DEX route available`,
     );

@@ -34,6 +34,7 @@ export type DexSource =
   | "lifi"
   | "uniswap_v3"
   | "curve"
+  | "curve_router"
   | "default";
 
 export interface DexQuoteResult {
@@ -53,6 +54,24 @@ export interface CurvePoolConfig {
   poolAddress: string;
   vusdIndex: number;
   stablecoinIndex: number;
+}
+
+export interface CurveRouterHop {
+  pool: string;
+  /** Input token index in the pool (buy direction: stablecoin → crvUSD → VUSD) */
+  i: number;
+  /** Output token index in the pool (buy direction) */
+  j: number;
+  swapType: number;
+  poolType: number;
+  nCoins: number;
+}
+
+export interface CurveRouterRouteConfig {
+  /** Hops in BUY direction: stablecoin → intermediateToken → VUSD. Reversed for sell. */
+  hops: [CurveRouterHop, CurveRouterHop];
+  /** Intermediate token address (e.g., crvUSD) */
+  intermediateToken: string;
 }
 
 export interface PriceData {

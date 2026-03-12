@@ -3,7 +3,10 @@ import {
   StablecoinConfig,
   FlashLoanProviderConfig,
   CurvePoolConfig,
+  CurveRouterRouteConfig,
+  CurveRouterHop,
 } from "./types";
+import * as C from "./constants";
 
 export interface Config {
   rpcUrl: string;
@@ -30,12 +33,18 @@ export interface Config {
   uniswapV3RouterAddress: string;
   curvePoolConfigs: Record<string, CurvePoolConfig>;
 
+  // Curve Router (multi-hop via crvUSD)
+  curveRouterAddress: string;
+  crvusdAddress: string;
+  curveRouterRoutes: Record<string, CurveRouterRouteConfig>;
+
   // Per-source enable/disable flags
   enableOneInch: boolean;
   enableZeroX: boolean;
   enableLifi: boolean;
   enableUniswapV3: boolean;
   enableCurve: boolean;
+  enableCurveRouter: boolean;
 
   // Thresholds
   minProfitUsd: number;
@@ -49,13 +58,7 @@ export interface Config {
 }
 
 export function loadConfig(): Config {
-  const requiredEnvVars = [
-    "ETHEREUM_RPC_URL",
-    "PRIVATE_KEY",
-    "VUSD_ARBITRAGE_ADDRESS",
-    "GATEWAY_ADDRESS",
-    "VUSD_ADDRESS",
-  ];
+  const requiredEnvVars = ["ETHEREUM_RPC_URL", "PRIVATE_KEY"];
 
   for (const envVar of requiredEnvVars) {
     if (!process.env[envVar]) {
@@ -65,27 +68,15 @@ export function loadConfig(): Config {
 
   return {
     rpcUrl: process.env.ETHEREUM_RPC_URL!,
-    chainId: parseInt(process.env.CHAIN_ID || "1"),
+    chainId: 1,
 
-    vusdArbitrageAddress: process.env.VUSD_ARBITRAGE_ADDRESS!,
-    gatewayAddress: process.env.GATEWAY_ADDRESS!,
-    vusdAddress: process.env.VUSD_ADDRESS!,
+    vusdArbitrageAddress: C.VUSD_ARBITRAGE_ADDRESS,
+    gatewayAddress: C.GATEWAY_ADDRESS,
+    vusdAddress: C.VUSD_ADDRESS,
 
     stablecoins: [
-      {
-        address:
-          process.env.USDC_ADDRESS ||
-          "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
-        symbol: "USDC",
-        decimals: 6,
-      },
-      {
-        address:
-          process.env.USDT_ADDRESS ||
-          "0xdAC17F958D2ee523a2206206994597C13D831ec7",
-        symbol: "USDT",
-        decimals: 6,
-      },
+      {address: C.USDC_ADDRESS, symbol: "USDC", decimals: 6},
+      {address: C.USDT_ADDRESS, symbol: "USDT", decimals: 6},
     ],
 
     flashLoanProviders: buildProviderList(),
@@ -94,19 +85,20 @@ export function loadConfig(): Config {
     zeroXApiKey: process.env.ZEROX_API_KEY,
     lifiEnabled: process.env.LIFI_ENABLED === "true",
 
-    uniswapV3QuoterAddress:
-      process.env.UNISWAP_V3_QUOTER ||
-      "0x61fFE014bA17989E743c5F6cB21bF9697530B21e",
-    uniswapV3RouterAddress:
-      process.env.UNISWAP_V3_ROUTER ||
-      "0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45",
+    uniswapV3QuoterAddress: C.UNISWAP_V3_QUOTER,
+    uniswapV3RouterAddress: C.UNISWAP_V3_ROUTER,
     curvePoolConfigs: parseCurvePoolConfigs(),
+
+    curveRouterAddress: C.CURVE_ROUTER_ADDRESS,
+    crvusdAddress: C.CRVUSD_ADDRESS,
+    curveRouterRoutes: parseCurveRouterRoutes(),
 
     enableOneInch: process.env.ENABLE_ONEINCH !== "false",
     enableZeroX: process.env.ENABLE_ZEROX !== "false",
     enableLifi: process.env.ENABLE_LIFI !== "false",
     enableUniswapV3: process.env.ENABLE_UNISWAP_V3 !== "false",
     enableCurve: process.env.ENABLE_CURVE !== "false",
+    enableCurveRouter: process.env.ENABLE_CURVE_ROUTER !== "false",
 
     minProfitUsd: parseFloat(process.env.MIN_PROFIT_USD || "5"),
     maxFlashAmount: BigInt(process.env.MAX_FLASH_AMOUNT || "1000000000000"), // 1M USDC default
@@ -122,15 +114,13 @@ function buildProviderList(): FlashLoanProviderConfig[] {
   const providers: FlashLoanProviderConfig[] = [];
 
   // Morpho — 0 fee
-  if (process.env.MORPHO_ADDRESS) {
-    providers.push({
-      provider: FlashLoanProvider.MORPHO,
-      address: process.env.MORPHO_ADDRESS,
-      feeBps: 0,
-    });
-  }
+  providers.push({
+    provider: FlashLoanProvider.MORPHO,
+    address: C.MORPHO_ADDRESS,
+    feeBps: 0,
+  });
 
-  // Balancer — 0 fee
+  // Balancer — 0 fee (optional, only if address provided)
   if (process.env.BALANCER_VAULT) {
     providers.push({
       provider: FlashLoanProvider.BALANCER,
@@ -140,13 +130,11 @@ function buildProviderList(): FlashLoanProviderConfig[] {
   }
 
   // Aave V3 — ~5 bps fee
-  if (process.env.AAVE_V3_POOL) {
-    providers.push({
-      provider: FlashLoanProvider.AAVE_V3,
-      address: process.env.AAVE_V3_POOL,
-      feeBps: 5,
-    });
-  }
+  providers.push({
+    provider: FlashLoanProvider.AAVE_V3,
+    address: C.AAVE_V3_POOL,
+    feeBps: 5,
+  });
 
   return providers;
 }
@@ -158,17 +146,10 @@ function buildProviderList(): FlashLoanProviderConfig[] {
 function parseCurvePoolConfigs(): Record<string, CurvePoolConfig> {
   const configs: Record<string, CurvePoolConfig> = {};
 
-  const usdcAddress = (
-    process.env.USDC_ADDRESS || "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
-  ).toLowerCase();
-  const usdtAddress = (
-    process.env.USDT_ADDRESS || "0xdAC17F958D2ee523a2206206994597C13D831ec7"
-  ).toLowerCase();
-
   const curveUsdc = process.env.CURVE_POOL_USDC;
   if (curveUsdc) {
     const [poolAddress, vusdIdx, stableIdx] = curveUsdc.split(":");
-    configs[usdcAddress] = {
+    configs[C.USDC_ADDRESS.toLowerCase()] = {
       poolAddress,
       vusdIndex: parseInt(vusdIdx),
       stablecoinIndex: parseInt(stableIdx),
@@ -178,10 +159,55 @@ function parseCurvePoolConfigs(): Record<string, CurvePoolConfig> {
   const curveUsdt = process.env.CURVE_POOL_USDT;
   if (curveUsdt) {
     const [poolAddress, vusdIdx, stableIdx] = curveUsdt.split(":");
-    configs[usdtAddress] = {
+    configs[C.USDT_ADDRESS.toLowerCase()] = {
       poolAddress,
       vusdIndex: parseInt(vusdIdx),
       stablecoinIndex: parseInt(stableIdx),
+    };
+  }
+
+  return configs;
+}
+
+/**
+ * Parse a single hop from "pool:i:j:swapType:poolType:nCoins" format.
+ */
+function parseHop(raw: string): CurveRouterHop {
+  const [pool, i, j, swapType, poolType, nCoins] = raw.split(":");
+  return {
+    pool,
+    i: parseInt(i),
+    j: parseInt(j),
+    swapType: parseInt(swapType),
+    poolType: parseInt(poolType),
+    nCoins: parseInt(nCoins),
+  };
+}
+
+/**
+ * Parse Curve Router multi-hop route configs from env vars.
+ * Format: CURVE_ROUTER_ROUTE_USDC=hop1|hop2
+ * Each hop: pool:i:j:swapType:poolType:nCoins
+ * Hops define BUY direction (stablecoin → crvUSD → VUSD).
+ */
+function parseCurveRouterRoutes(): Record<string, CurveRouterRouteConfig> {
+  const configs: Record<string, CurveRouterRouteConfig> = {};
+
+  const routeUsdc = process.env.CURVE_ROUTER_ROUTE_USDC;
+  if (routeUsdc) {
+    const [hop1Raw, hop2Raw] = routeUsdc.split("|");
+    configs[C.USDC_ADDRESS.toLowerCase()] = {
+      hops: [parseHop(hop1Raw), parseHop(hop2Raw)],
+      intermediateToken: C.CRVUSD_ADDRESS,
+    };
+  }
+
+  const routeUsdt = process.env.CURVE_ROUTER_ROUTE_USDT;
+  if (routeUsdt) {
+    const [hop1Raw, hop2Raw] = routeUsdt.split("|");
+    configs[C.USDT_ADDRESS.toLowerCase()] = {
+      hops: [parseHop(hop1Raw), parseHop(hop2Raw)],
+      intermediateToken: C.CRVUSD_ADDRESS,
     };
   }
 

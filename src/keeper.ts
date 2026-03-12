@@ -56,6 +56,10 @@ export class Keeper {
       config.uniswapV3QuoterAddress,
       config.uniswapV3RouterAddress,
       config.curvePoolConfigs,
+      config.curveRouterAddress,
+      config.crvusdAddress,
+      config.vusdAddress,
+      config.curveRouterRoutes,
     );
 
     this.priceMonitor = new PriceMonitor(
@@ -74,6 +78,7 @@ export class Keeper {
           ...aggregators.map((a) => a.name),
           ...(config.enableUniswapV3 ? ["uniswap_v3"] : []),
           ...(config.enableCurve ? ["curve"] : []),
+          ...(config.enableCurveRouter ? ["curve_router"] : []),
         ].join(" → ") || "none"
       } → default(1.0)`,
     );
