@@ -18,6 +18,7 @@ import { DexQuoter } from "../../src/dexQuoter";
 import {
   ArbDirection,
   ArbOpportunity,
+  FlashAmountTier,
   FlashLoanProvider,
   StablecoinConfig,
 } from "../../src/types";
@@ -95,6 +96,12 @@ describe("E2E: Off-chain arbitrage pipeline", () => {
       uniswapV3QuoterAddress: ethers.ZeroAddress,
       uniswapV3RouterAddress: ethers.ZeroAddress,
       curvePoolConfigs: {},
+      flashAmountTiers: [
+        {deviationBps: 500, amountUsd: 500000},
+        {deviationBps: 200, amountUsd: 100000},
+        {deviationBps: 50, amountUsd: 50000},
+        {deviationBps: 0, amountUsd: 10000},
+      ],
       minProfitUsd: 1.0,
       maxFlashAmount: BigInt("1000000000000"),
       pollIntervalMs: 1000,
@@ -113,7 +120,7 @@ describe("E2E: Off-chain arbitrage pipeline", () => {
 
     // 8. Wire components with MockDexAdapter as sole aggregator
     priceMonitor = new PriceMonitor(provider, config, [mockDexAdapter], dexQuoter);
-    profitCalculator = new ProfitCalculator(config.minProfitUsd);
+    profitCalculator = new ProfitCalculator(config.minProfitUsd, config.flashAmountTiers);
     swapBuilder = new SwapBuilder(config, [mockDexAdapter], dexQuoter);
     executor = new Executor(provider, config);
 
@@ -146,22 +153,23 @@ describe("E2E: Off-chain arbitrage pipeline", () => {
     // Step 1: PriceMonitor reads Gateway + DEX prices
     const priceData = await priceMonitor.getPriceData(usdc);
 
-    // Step 2: ProfitCalculator evaluates
+    // Step 2: Flash amount sizing (before evaluate so profit is realistic)
+    const flashAmount = profitCalculator.suggestFlashAmount(
+      priceData,
+      config.maxFlashAmount
+    );
+
+    // Step 3: ProfitCalculator evaluates at the actual flash amount
     const evaluation = profitCalculator.evaluate(
       priceData,
       config.flashLoanProviders[0],
+      flashAmount,
       0 // gas cost = 0 on Anvil
     );
 
     if (!evaluation) {
       return { priceData, evaluation: null, receipt: null };
     }
-
-    // Step 3: Flash amount sizing
-    const flashAmount = profitCalculator.suggestFlashAmount(
-      priceData,
-      config.maxFlashAmount
-    );
 
     // Step 4: SwapBuilder builds calldata (routes through MockDexAdapter)
     let swapParams;
@@ -286,14 +294,19 @@ describe("E2E: Off-chain arbitrage pipeline", () => {
   // ===========================================================================
   it("should skip when profit is below minProfitUsd threshold", async () => {
     // Use a high-threshold calculator ($100 min)
-    const highThresholdCalc = new ProfitCalculator(100);
+    const highThresholdCalc = new ProfitCalculator(100, config.flashAmountTiers);
 
     await dexContract.setPrice(ethers.parseUnits("1.001", 18)); // 0.1% spread
 
     const priceData = await priceMonitor.getPriceData(usdc);
+    const flashAmount = highThresholdCalc.suggestFlashAmount(
+      priceData,
+      config.maxFlashAmount
+    );
     const evaluation = highThresholdCalc.evaluate(
       priceData,
       config.flashLoanProviders[0],
+      flashAmount,
       5.0 // $5 gas cost
     );
 

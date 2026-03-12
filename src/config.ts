@@ -1,6 +1,7 @@
 import {ethers} from "ethers";
 import {
   FlashLoanProvider,
+  FlashAmountTier,
   StablecoinConfig,
   FlashLoanProviderConfig,
   CurvePoolConfig,
@@ -46,6 +47,9 @@ export interface Config {
   enableUniswapV3: boolean;
   enableCurve: boolean;
   enableCurveRouter: boolean;
+
+  // Flash amount sizing — deviation tiers sorted descending
+  flashAmountTiers: FlashAmountTier[];
 
   // Thresholds
   minProfitUsd: number;
@@ -100,6 +104,8 @@ export function loadConfig(): Config {
     enableUniswapV3: process.env.ENABLE_UNISWAP_V3 !== "false",
     enableCurve: process.env.ENABLE_CURVE !== "false",
     enableCurveRouter: process.env.ENABLE_CURVE_ROUTER !== "false",
+
+    flashAmountTiers: parseFlashAmountTiers(),
 
     minProfitUsd: parseFloat(process.env.MIN_PROFIT_USD || "5"),
     maxFlashAmount: BigInt(process.env.MAX_FLASH_AMOUNT || "1000000000000"), // 1M USDC default
@@ -213,4 +219,44 @@ function parseCurveRouterRoutes(): Record<string, CurveRouterRouteConfig> {
   }
 
   return configs;
+}
+
+/**
+ * Default flash amount tiers — conservative for low-liquidity pools.
+ * Format: deviation threshold (bps) → flash amount (USD).
+ * First match wins (sorted descending by deviationBps).
+ */
+const DEFAULT_FLASH_TIERS: FlashAmountTier[] = [
+  {deviationBps: 500, amountUsd: 2000}, // > 5%  → $2,000
+  {deviationBps: 200, amountUsd: 1000}, // > 2%  → $1,000
+  {deviationBps: 50, amountUsd: 500}, // > 0.5% → $500
+  {deviationBps: 0, amountUsd: 500}, // default  → $500
+];
+
+/**
+ * Parse flash amount tiers from FLASH_AMOUNT_TIERS env var.
+ * Format: JSON array of [deviationBps, amountUsd] pairs.
+ * Example: [[500,2000],[200,1000],[50,500],[0,500]]
+ * If not set, uses DEFAULT_FLASH_TIERS.
+ */
+function parseFlashAmountTiers(): FlashAmountTier[] {
+  const raw = process.env.FLASH_AMOUNT_TIERS;
+  if (!raw) return DEFAULT_FLASH_TIERS;
+
+  try {
+    const parsed: [number, number][] = JSON.parse(raw);
+    const tiers = parsed.map(([deviationBps, amountUsd]) => ({
+      deviationBps,
+      amountUsd,
+    }));
+    // Sort descending by deviationBps so first match wins
+    tiers.sort((a, b) => b.deviationBps - a.deviationBps);
+    return tiers;
+  } catch (e) {
+    console.warn(
+      "Failed to parse FLASH_AMOUNT_TIERS, using defaults:",
+      e instanceof Error ? e.message : e,
+    );
+    return DEFAULT_FLASH_TIERS;
+  }
 }

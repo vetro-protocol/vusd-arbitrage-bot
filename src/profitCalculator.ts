@@ -1,16 +1,49 @@
 import {ethers} from "ethers";
-import {ArbDirection, PriceData, FlashLoanProviderConfig} from "./types";
+import {
+  ArbDirection,
+  FlashAmountTier,
+  PriceData,
+  FlashLoanProviderConfig,
+} from "./types";
 
 export class ProfitCalculator {
-  constructor(private minProfitUsd: number) {}
+  constructor(
+    private minProfitUsd: number,
+    private flashAmountTiers: FlashAmountTier[],
+  ) {}
 
   /**
-   * Check if an arb opportunity exists and estimate profit
-   * Returns null if no opportunity
+   * Determine flash loan size based on price deviation and configurable tiers.
+   * Tiers are sorted descending by deviationBps — first match wins.
+   * Result is capped by maxAmount.
+   */
+  suggestFlashAmount(priceData: PriceData, maxAmount: bigint): bigint {
+    const deviationBps = Math.abs(priceData.vusdDexPrice - 1.0) * 10000;
+    const decimals = priceData.stablecoin.decimals;
+
+    // Find the first tier whose threshold is met
+    let amountUsd = this.flashAmountTiers[this.flashAmountTiers.length - 1]
+      ?.amountUsd ?? 500;
+    for (const tier of this.flashAmountTiers) {
+      if (deviationBps >= tier.deviationBps) {
+        amountUsd = tier.amountUsd;
+        break;
+      }
+    }
+
+    const amount = ethers.parseUnits(String(amountUsd), decimals);
+    return amount < maxAmount ? amount : maxAmount;
+  }
+
+  /**
+   * Evaluate whether an arb opportunity exists at the given flash amount.
+   * Computes profit = (spread * notional) - gasCost.
+   * Returns null if no opportunity or profit below threshold.
    */
   evaluate(
     priceData: PriceData,
     provider: FlashLoanProviderConfig,
+    flashAmount: bigint,
     estimatedGasCostUsd: number,
   ): {
     direction: ArbDirection;
@@ -20,13 +53,17 @@ export class ProfitCalculator {
     const {vusdDexPrice, mintFeeBps, redeemFeeBps, stablecoin} = priceData;
     const flashFeeBps = provider.feeBps;
 
+    // Convert flash amount to USD-equivalent notional
+    const notionalUsd =
+      Number(flashAmount) / 10 ** stablecoin.decimals;
+
     // VUSD > $1 on DEX → mint and sell
     if (vusdDexPrice > 1.0) {
-      // Profit per $1: sell at vusdDexPrice, gateway costs 1 + mintFee + flashFee
       const gatewayMintCost = 1 + mintFeeBps / 10000 + flashFeeBps / 10000;
-      const spreadBps = Math.round((vusdDexPrice - gatewayMintCost) * 10000);
-      const estimatedProfitPer1000 = (vusdDexPrice - gatewayMintCost) * 1000;
-      const estimatedProfitUsd = estimatedProfitPer1000 - estimatedGasCostUsd;
+      const spreadPerDollar = vusdDexPrice - gatewayMintCost;
+      const spreadBps = Math.round(spreadPerDollar * 10000);
+      const estimatedProfitUsd =
+        spreadPerDollar * notionalUsd - estimatedGasCostUsd;
 
       if (estimatedProfitUsd >= this.minProfitUsd && spreadBps > 0) {
         return {
@@ -39,15 +76,12 @@ export class ProfitCalculator {
 
     // VUSD < $1 on DEX → buy and redeem
     if (vusdDexPrice < 1.0) {
-      // Profit per $1: buy at vusdDexPrice, gateway redeems at 1 - redeemFee - flashFee
       const gatewayRedeemReturn =
         1 - redeemFeeBps / 10000 - flashFeeBps / 10000;
-      const spreadBps = Math.round(
-        (gatewayRedeemReturn - vusdDexPrice) * 10000,
-      );
-      const estimatedProfitPer1000 =
-        (gatewayRedeemReturn - vusdDexPrice) * 1000;
-      const estimatedProfitUsd = estimatedProfitPer1000 - estimatedGasCostUsd;
+      const spreadPerDollar = gatewayRedeemReturn - vusdDexPrice;
+      const spreadBps = Math.round(spreadPerDollar * 10000);
+      const estimatedProfitUsd =
+        spreadPerDollar * notionalUsd - estimatedGasCostUsd;
 
       if (estimatedProfitUsd >= this.minProfitUsd && spreadBps > 0) {
         return {
@@ -59,30 +93,5 @@ export class ProfitCalculator {
     }
 
     return null;
-  }
-
-  /**
-   * Determine optimal flash amount based on estimated profit curve.
-   * Start conservative, increase as long as marginal profit stays positive.
-   * The real check is done via staticCall simulation.
-   */
-  suggestFlashAmount(priceData: PriceData, maxAmount: bigint): bigint {
-    // Start with 10k, scale up based on price deviation
-    const deviation = Math.abs(priceData.vusdDexPrice - 1.0);
-    const decimals = priceData.stablecoin.decimals;
-
-    let amount: bigint;
-    if (deviation > 0.05) {
-      // Large deviation: aggressive sizing
-      amount = ethers.parseUnits("500000", decimals);
-    } else if (deviation > 0.02) {
-      amount = ethers.parseUnits("100000", decimals);
-    } else if (deviation > 0.005) {
-      amount = ethers.parseUnits("50000", decimals);
-    } else {
-      amount = ethers.parseUnits("10000", decimals);
-    }
-
-    return amount < maxAmount ? amount : maxAmount;
   }
 }

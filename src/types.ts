@@ -90,6 +90,17 @@ export interface PriceData {
   stablecoin: StablecoinConfig;
 }
 
+/**
+ * A single tier mapping a minimum price deviation (bps) to a flash loan amount (USD).
+ * Tiers are sorted descending by deviationBps — first match wins.
+ */
+export interface FlashAmountTier {
+  /** Minimum deviation in bps (e.g., 500 = 5%) */
+  deviationBps: number;
+  /** Flash loan amount in USD (before decimals) */
+  amountUsd: number;
+}
+
 export interface ArbOpportunity {
   direction: ArbDirection;
   stablecoin: StablecoinConfig;

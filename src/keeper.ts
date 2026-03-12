@@ -68,7 +68,10 @@ export class Keeper {
       aggregators,
       dexQuoter,
     );
-    this.profitCalculator = new ProfitCalculator(config.minProfitUsd);
+    this.profitCalculator = new ProfitCalculator(
+      config.minProfitUsd,
+      config.flashAmountTiers,
+    );
     this.swapBuilder = new SwapBuilder(config, aggregators, dexQuoter);
     this.executor = new Executor(this.provider, config);
 
@@ -86,78 +89,157 @@ export class Keeper {
 
   async start(): Promise<void> {
     this.running = true;
-    console.log("Keeper started. Monitoring VUSD price...");
+    const ts = () => new Date().toISOString().slice(11, 19);
+
+    console.log("═══════════════════════════════════════════════════");
+    console.log("  VUSD Arbitrage Keeper");
+    console.log("═══════════════════════════════════════════════════");
     console.log(
-      `  Stablecoins: ${this.config.stablecoins.map((s) => s.symbol).join(", ")}`,
+      `  Stablecoins : ${this.config.stablecoins.map((s) => s.symbol).join(", ")}`,
     );
     console.log(
-      `  Providers: ${this.config.flashLoanProviders.map((p) => `${p.address} (${p.feeBps}bps)`).join(", ")}`,
+      `  Providers   : ${this.config.flashLoanProviders.map((p) => `${p.address.slice(0, 10)}… (${p.feeBps}bps)`).join(", ")}`,
     );
-    console.log(`  Min profit: $${this.config.minProfitUsd}`);
-    console.log(`  Poll interval: ${this.config.pollIntervalMs}ms`);
+    console.log(`  Min profit  : $${this.config.minProfitUsd}`);
+    console.log(`  Poll        : ${this.config.pollIntervalMs / 1000}s`);
+    console.log(
+      `  Flash tiers : ${this.config.flashAmountTiers.map((t) => `>${t.deviationBps}bps→$${t.amountUsd}`).join(", ")}`,
+    );
+    console.log("═══════════════════════════════════════════════════\n");
 
     while (this.running) {
       try {
-        await this.tick();
+        await this.tick(ts);
       } catch (error) {
-        console.error("[Keeper] Tick error:", error);
+        console.error(`[${ts()}] Tick error:`, error);
       }
       await sleep(this.config.pollIntervalMs);
     }
   }
 
-  private async tick(): Promise<void> {
+  private async tick(ts: () => string): Promise<void> {
     for (const stablecoin of this.config.stablecoins) {
       try {
         // 1. Get prices
         const priceData = await this.priceMonitor.getPriceData(stablecoin);
-        console.log(
-          `[${stablecoin.symbol}] VUSD DEX price: ${priceData.vusdDexPrice.toFixed(4)} (via ${priceData.dexQuote.source}), ` +
-            `mint fee: ${priceData.mintFeeBps}bps, redeem fee: ${priceData.redeemFeeBps}bps`,
+        const deviationBps = Math.round(
+          Math.abs(priceData.vusdDexPrice - 1.0) * 10000,
         );
+        const direction =
+          priceData.vusdDexPrice > 1.0
+            ? "ABOVE"
+            : priceData.vusdDexPrice < 1.0
+              ? "BELOW"
+              : "AT";
 
-        // 2. Select best provider
-        const provider = this.config.flashLoanProviders[0]; // Already sorted by fee
-        if (!provider) {
-          console.warn("No flash loan providers configured");
-          continue;
-        }
-
-        // 3. Evaluate opportunity
-        const estimatedGasCostUsd = 5.0; // Conservative estimate
-        const evaluation = this.profitCalculator.evaluate(
-          priceData,
-          provider,
-          estimatedGasCostUsd,
-        );
-
-        if (!evaluation) continue;
-
-        // Skip if DEX source is "default" — no real price data, can't build swap
+        // Skip if DEX source is "default" — no real price data
         if (priceData.dexQuote.source === "default") {
-          console.warn(
-            `[${stablecoin.symbol}] Opportunity detected but no DEX route available (all sources failed)`,
+          console.log(
+            `[${ts()}] [${stablecoin.symbol}] No DEX quote available (all sources failed)`,
           );
           continue;
         }
 
-        console.log(
-          `[${stablecoin.symbol}] Opportunity found: ${ArbDirection[evaluation.direction]}, ` +
-            `spread: ${evaluation.spreadBps}bps, est. profit: $${evaluation.estimatedProfitUsd.toFixed(2)}`,
-        );
+        // 2. Select best provider
+        const provider = this.config.flashLoanProviders[0];
+        if (!provider) {
+          console.warn(`[${ts()}] No flash loan providers configured`);
+          continue;
+        }
 
-        // 4. Determine flash amount
+        // 3. Determine flash amount based on price deviation
         const flashAmount = this.profitCalculator.suggestFlashAmount(
           priceData,
           this.config.maxFlashAmount,
         );
+        const flashUsd = Number(flashAmount) / 10 ** stablecoin.decimals;
 
-        // 5. Build swap params (routed through same DEX that quoted the price)
+        // 4. Evaluate opportunity at the actual flash amount
+        const estimatedGasCostUsd = 5.0;
+        const evaluation = this.profitCalculator.evaluate(
+          priceData,
+          provider,
+          flashAmount,
+          estimatedGasCostUsd,
+        );
+
+        // Compute raw spread + profit for logging (regardless of threshold)
+        const flashFeeBps = provider.feeBps;
+        let rawSpreadBps = 0;
+        let rawEstProfit = 0;
+        let rawDirection = "";
+        if (priceData.vusdDexPrice > 1.0) {
+          const cost = 1 + priceData.mintFeeBps / 10000 + flashFeeBps / 10000;
+          rawSpreadBps = Math.round((priceData.vusdDexPrice - cost) * 10000);
+          rawEstProfit = (priceData.vusdDexPrice - cost) * flashUsd - estimatedGasCostUsd;
+          rawDirection = "MINT_AND_SELL";
+        } else if (priceData.vusdDexPrice < 1.0) {
+          const ret = 1 - priceData.redeemFeeBps / 10000 - flashFeeBps / 10000;
+          rawSpreadBps = Math.round((ret - priceData.vusdDexPrice) * 10000);
+          rawEstProfit = (ret - priceData.vusdDexPrice) * flashUsd - estimatedGasCostUsd;
+          rawDirection = "BUY_AND_REDEEM";
+        }
+
+        const profitSign = rawEstProfit >= 0 ? "+" : "";
+        const actionable = evaluation ? ">>> ACTIONABLE" : "";
+
+        console.log(
+          `[${ts()}] [${stablecoin.symbol}] ` +
+            `price=$${priceData.vusdDexPrice.toFixed(4)} (${direction} peg, ${deviationBps}bps) | ` +
+            `via ${priceData.dexQuote.source} | ` +
+            `${rawDirection} spread=${rawSpreadBps}bps | ` +
+            `flash=$${flashUsd.toLocaleString()} | ` +
+            `est=${profitSign}$${rawEstProfit.toFixed(2)} (min $${this.config.minProfitUsd}) | ` +
+            `fees: mint=${priceData.mintFeeBps}bps redeem=${priceData.redeemFeeBps}bps` +
+            (actionable ? ` ${actionable}` : ""),
+        );
+
+        if (!evaluation) continue;
+
+        // 5. Check Gateway capacity and cap flash amount
+        const capacity = await this.priceMonitor.getCapacity(stablecoin);
+        let cappedFlashAmount = flashAmount;
+
+        if (evaluation.direction === ArbDirection.BUY_AND_REDEEM) {
+          if (capacity.maxWithdraw === 0n) {
+            console.warn(
+              `[${ts()}] [${stablecoin.symbol}] SKIP BUY_AND_REDEEM: Gateway has 0 ${stablecoin.symbol} reserves`,
+            );
+            continue;
+          }
+          if (cappedFlashAmount > capacity.maxWithdraw) {
+            const maxW = ethers.formatUnits(
+              capacity.maxWithdraw,
+              stablecoin.decimals,
+            );
+            console.log(
+              `[${ts()}] [${stablecoin.symbol}] Capping flash to Gateway maxWithdraw: $${maxW}`,
+            );
+            cappedFlashAmount = capacity.maxWithdraw;
+          }
+        } else {
+          if (capacity.maxMint === 0n) {
+            console.warn(
+              `[${ts()}] [${stablecoin.symbol}] SKIP MINT_AND_SELL: Gateway mint cap reached`,
+            );
+            continue;
+          }
+        }
+
+        const cappedUsd =
+          Number(cappedFlashAmount) / 10 ** stablecoin.decimals;
+        console.log(
+          `[${ts()}] [${stablecoin.symbol}] >>> ${ArbDirection[evaluation.direction]} ` +
+            `$${cappedUsd.toLocaleString()} ${stablecoin.symbol} | ` +
+            `spread=${evaluation.spreadBps}bps | est profit=$${evaluation.estimatedProfitUsd.toFixed(2)}`,
+        );
+
+        // 6. Build swap params
         let swapParams;
         if (evaluation.direction === ArbDirection.MINT_AND_SELL) {
           const vusdEstimate = priceData.gatewayMintOutput;
           const scaledVusd =
-            (vusdEstimate * flashAmount) /
+            (vusdEstimate * cappedFlashAmount) /
             ethers.parseUnits("10000", stablecoin.decimals);
           swapParams = await this.swapBuilder.buildSellVusdSwap(
             scaledVusd,
@@ -166,13 +248,13 @@ export class Keeper {
           );
         } else {
           swapParams = await this.swapBuilder.buildBuyVusdSwap(
-            flashAmount,
+            cappedFlashAmount,
             stablecoin,
             priceData.dexQuote,
           );
         }
 
-        // 6. Build opportunity
+        // 7. Build opportunity
         const minProfit = ethers.parseUnits(
           String(this.config.minProfitUsd),
           stablecoin.decimals,
@@ -181,7 +263,7 @@ export class Keeper {
         const opportunity: ArbOpportunity = {
           direction: evaluation.direction,
           stablecoin,
-          flashAmount,
+          flashAmount: cappedFlashAmount,
           swapParams,
           provider: provider.provider,
           estimatedProfitUsd: evaluation.estimatedProfitUsd,
@@ -189,15 +271,15 @@ export class Keeper {
           minProfit,
         };
 
-        // 7. Execute
+        // 8. Execute
         const receipt = await this.executor.execute(opportunity);
         if (receipt) {
           console.log(
-            `[${stablecoin.symbol}] Arb executed! Tx: ${receipt.hash}`,
+            `[${ts()}] [${stablecoin.symbol}] ARB EXECUTED! Tx: ${receipt.hash}`,
           );
         }
       } catch (error) {
-        console.error(`[${stablecoin.symbol}] Error:`, error);
+        console.error(`[${ts()}] [${stablecoin.symbol}] Error:`, error);
       }
     }
   }
