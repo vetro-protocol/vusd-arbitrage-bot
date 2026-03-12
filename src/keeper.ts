@@ -132,8 +132,8 @@ export class Keeper {
               ? "BELOW"
               : "AT";
 
-        // Skip if DEX source is "default" — no real price data
-        if (priceData.dexQuote.source === "default") {
+        // Skip if both DEX sources are "default" — no real price data
+        if (priceData.dexQuote.source === "default" && priceData.dexBuyQuote.source === "default") {
           console.log(
             `[${ts()}] [${stablecoin.symbol}] No DEX quote available (all sources failed)`,
           );
@@ -169,14 +169,16 @@ export class Keeper {
         let rawEstProfit = 0;
         let rawDirection = "";
         if (priceData.vusdDexPrice > 1.0) {
+          // MINT_AND_SELL: use sell price
           const cost = 1 + priceData.mintFeeBps / 10000 + flashFeeBps / 10000;
           rawSpreadBps = Math.round((priceData.vusdDexPrice - cost) * 10000);
           rawEstProfit = (priceData.vusdDexPrice - cost) * flashUsd - estimatedGasCostUsd;
           rawDirection = "MINT_AND_SELL";
-        } else if (priceData.vusdDexPrice < 1.0) {
+        } else if (priceData.vusdDexBuyPrice < 1.0) {
+          // BUY_AND_REDEEM: use buy price
           const ret = 1 - priceData.redeemFeeBps / 10000 - flashFeeBps / 10000;
-          rawSpreadBps = Math.round((ret - priceData.vusdDexPrice) * 10000);
-          rawEstProfit = (ret - priceData.vusdDexPrice) * flashUsd - estimatedGasCostUsd;
+          rawSpreadBps = Math.round((ret - priceData.vusdDexBuyPrice) * 10000);
+          rawEstProfit = (ret - priceData.vusdDexBuyPrice) * flashUsd - estimatedGasCostUsd;
           rawDirection = "BUY_AND_REDEEM";
         }
 
@@ -185,8 +187,8 @@ export class Keeper {
 
         console.log(
           `[${ts()}] [${stablecoin.symbol}] ` +
-            `price=$${priceData.vusdDexPrice.toFixed(4)} (${direction} peg, ${deviationBps}bps) | ` +
-            `via ${priceData.dexQuote.source} | ` +
+            `sell=$${priceData.vusdDexPrice.toFixed(4)} buy=$${priceData.vusdDexBuyPrice.toFixed(4)} (${direction} peg, ${deviationBps}bps) | ` +
+            `via ${priceData.dexQuote.source}/${priceData.dexBuyQuote.source} | ` +
             `${rawDirection} spread=${rawSpreadBps}bps | ` +
             `flash=$${flashUsd.toLocaleString()} | ` +
             `est=${profitSign}$${rawEstProfit.toFixed(2)} (min $${this.config.minProfitUsd}) | ` +
@@ -234,7 +236,7 @@ export class Keeper {
             `spread=${evaluation.spreadBps}bps | est profit=$${evaluation.estimatedProfitUsd.toFixed(2)}`,
         );
 
-        // 6. Build swap params
+        // 6. Build swap params (use the matching directional quote as source)
         let swapParams;
         if (evaluation.direction === ArbDirection.MINT_AND_SELL) {
           const vusdEstimate = priceData.gatewayMintOutput;
@@ -250,7 +252,7 @@ export class Keeper {
           swapParams = await this.swapBuilder.buildBuyVusdSwap(
             cappedFlashAmount,
             stablecoin,
-            priceData.dexQuote,
+            priceData.dexBuyQuote,
           );
         }
 

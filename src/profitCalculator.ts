@@ -18,7 +18,10 @@ export class ProfitCalculator {
    * Result is capped by maxAmount.
    */
   suggestFlashAmount(priceData: PriceData, maxAmount: bigint): bigint {
-    const deviationBps = Math.abs(priceData.vusdDexPrice - 1.0) * 10000;
+    // Use the larger deviation of sell vs buy price for tier selection
+    const sellDev = Math.abs(priceData.vusdDexPrice - 1.0) * 10000;
+    const buyDev = Math.abs(priceData.vusdDexBuyPrice - 1.0) * 10000;
+    const deviationBps = Math.max(sellDev, buyDev);
     const decimals = priceData.stablecoin.decimals;
 
     // Find the first tier whose threshold is met
@@ -50,14 +53,15 @@ export class ProfitCalculator {
     estimatedProfitUsd: number;
     spreadBps: number;
   } | null {
-    const {vusdDexPrice, mintFeeBps, redeemFeeBps, stablecoin} = priceData;
+    const {vusdDexPrice, vusdDexBuyPrice, mintFeeBps, redeemFeeBps, stablecoin} = priceData;
     const flashFeeBps = provider.feeBps;
 
     // Convert flash amount to USD-equivalent notional
     const notionalUsd =
       Number(flashAmount) / 10 ** stablecoin.decimals;
 
-    // VUSD > $1 on DEX → mint and sell
+    // VUSD sell price > $1 on DEX → mint and sell
+    // Use sell price: how much stablecoin we get per VUSD sold
     if (vusdDexPrice > 1.0) {
       const gatewayMintCost = 1 + mintFeeBps / 10000 + flashFeeBps / 10000;
       const spreadPerDollar = vusdDexPrice - gatewayMintCost;
@@ -74,11 +78,12 @@ export class ProfitCalculator {
       }
     }
 
-    // VUSD < $1 on DEX → buy and redeem
-    if (vusdDexPrice < 1.0) {
+    // VUSD buy price < $1 on DEX → buy and redeem
+    // Use buy price: how much stablecoin it costs to buy 1 VUSD
+    if (vusdDexBuyPrice < 1.0) {
       const gatewayRedeemReturn =
         1 - redeemFeeBps / 10000 - flashFeeBps / 10000;
-      const spreadPerDollar = gatewayRedeemReturn - vusdDexPrice;
+      const spreadPerDollar = gatewayRedeemReturn - vusdDexBuyPrice;
       const spreadBps = Math.round(spreadPerDollar * 10000);
       const estimatedProfitUsd =
         spreadPerDollar * notionalUsd - estimatedGasCostUsd;

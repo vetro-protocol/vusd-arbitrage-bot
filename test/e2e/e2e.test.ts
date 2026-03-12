@@ -186,7 +186,7 @@ describe("E2E: Off-chain arbitrage pipeline", () => {
       swapParams = await swapBuilder.buildBuyVusdSwap(
         flashAmount,
         usdc,
-        priceData.dexQuote
+        priceData.dexBuyQuote
       );
     }
 

@@ -75,10 +75,14 @@ export interface CurveRouterRouteConfig {
 }
 
 export interface PriceData {
-  /** VUSD price on DEX in stablecoin terms (e.g., 0.98 means 1 VUSD = 0.98 USDC) */
+  /** VUSD sell price: how much stablecoin you get per VUSD sold on DEX (e.g., 0.9927) */
   vusdDexPrice: number;
-  /** Which DEX source provided the price */
+  /** VUSD buy price: how much stablecoin it costs to buy 1 VUSD on DEX (e.g., 0.9940) */
+  vusdDexBuyPrice: number;
+  /** Which DEX source provided the sell quote */
   dexQuote: DexQuoteResult;
+  /** Which DEX source provided the buy quote */
+  dexBuyQuote: DexQuoteResult;
   /** Gateway previewDeposit result: VUSD out for depositing testAmount of stablecoin */
   gatewayMintOutput: bigint;
   /** Gateway previewRedeem result: stablecoin out for redeeming testAmount of VUSD */
