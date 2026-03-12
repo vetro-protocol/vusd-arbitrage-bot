@@ -163,24 +163,24 @@ export class Keeper {
           estimatedGasCostUsd,
         );
 
-        // Compute raw spread + profit for logging (regardless of threshold)
+        // Compute raw spread + profit for BOTH directions, pick the better one
         const flashFeeBps = provider.feeBps;
-        let rawSpreadBps = 0;
-        let rawEstProfit = 0;
-        let rawDirection = "";
-        if (priceData.vusdDexPrice > 1.0) {
-          // MINT_AND_SELL: use sell price
-          const cost = 1 + priceData.mintFeeBps / 10000 + flashFeeBps / 10000;
-          rawSpreadBps = Math.round((priceData.vusdDexPrice - cost) * 10000);
-          rawEstProfit = (priceData.vusdDexPrice - cost) * flashUsd - estimatedGasCostUsd;
-          rawDirection = "MINT_AND_SELL";
-        } else if (priceData.vusdDexBuyPrice < 1.0) {
-          // BUY_AND_REDEEM: use buy price
-          const ret = 1 - priceData.redeemFeeBps / 10000 - flashFeeBps / 10000;
-          rawSpreadBps = Math.round((ret - priceData.vusdDexBuyPrice) * 10000);
-          rawEstProfit = (ret - priceData.vusdDexBuyPrice) * flashUsd - estimatedGasCostUsd;
-          rawDirection = "BUY_AND_REDEEM";
-        }
+
+        // MINT_AND_SELL: flash stablecoin → mint VUSD at Gateway → sell VUSD on DEX
+        const mintCost = 1 + priceData.mintFeeBps / 10000 + flashFeeBps / 10000;
+        const mintSpreadBps = Math.round((priceData.vusdDexPrice - mintCost) * 10000);
+        const mintEstProfit = (priceData.vusdDexPrice - mintCost) * flashUsd - estimatedGasCostUsd;
+
+        // BUY_AND_REDEEM: flash stablecoin → buy VUSD on DEX → redeem at Gateway
+        const redeemReturn = 1 - priceData.redeemFeeBps / 10000 - flashFeeBps / 10000;
+        const redeemSpreadBps = Math.round((redeemReturn - priceData.vusdDexBuyPrice) * 10000);
+        const redeemEstProfit = (redeemReturn - priceData.vusdDexBuyPrice) * flashUsd - estimatedGasCostUsd;
+
+        // Pick the better (or less-bad) direction for display
+        const mintIsBetter = mintEstProfit >= redeemEstProfit;
+        const rawDirection = mintIsBetter ? "MINT_AND_SELL" : "BUY_AND_REDEEM";
+        const rawSpreadBps = mintIsBetter ? mintSpreadBps : redeemSpreadBps;
+        const rawEstProfit = mintIsBetter ? mintEstProfit : redeemEstProfit;
 
         const profitSign = rawEstProfit >= 0 ? "+" : "";
         const actionable = evaluation ? ">>> ACTIONABLE" : "";
