@@ -111,6 +111,8 @@ contract VUSDArbitrage is
 
     /// @dev Set in callback, read/returned from entry point, zeroed after use
     int256 private _lastProfit;
+    /// @dev Guard to avoid anyone to initiate Balancer flash loan
+    bool private _balancerFlashloanInitiated; 
 
     /*//////////////////////////////////////////////////////////////
                               MODIFIERS
@@ -277,6 +279,7 @@ contract VUSDArbitrage is
     ) external {
         address vault = providerAddress[FlashLoanProvider.BALANCER];
         if (msg.sender != vault) revert InvalidSender();
+        if (!_balancerFlashloanInitiated) revert InvalidInitiator();
 
         address token = address(tokens_[0]);
         uint256 amount = amounts_[0];
@@ -371,6 +374,7 @@ contract VUSDArbitrage is
         address lender = providerAddress[provider_];
         if (lender == address(0)) revert ProviderNotSet();
 
+
         if (provider_ == FlashLoanProvider.AAVE_V3) {
             IPool(lender).flashLoanSimple(address(this), token_, amount_, data_, 0);
         } else if (provider_ == FlashLoanProvider.MORPHO) {
@@ -380,8 +384,11 @@ contract VUSDArbitrage is
             tokens[0] = IERC20(token_);
             uint256[] memory amounts = new uint256[](1);
             amounts[0] = amount_;
+            _balancerFlashloanInitiated = true;
             IBalancerVault(lender).flashLoan(address(this), tokens, amounts, data_);
+            _balancerFlashloanInitiated = false;
         }
+
     }
 
     /// @dev Shared handler called by all flashloan callbacks
