@@ -32,7 +32,7 @@ function buildAggregators(config: Config): AggregatorAdapter[] {
     adapters.push(new ZeroXAdapter(config.zeroXApiKey));
   }
 
-  if (config.enableLifi && config.lifiEnabled) {
+  if (config.enableLifi) {
     adapters.push(new LiFiAdapter());
   }
 
@@ -57,7 +57,6 @@ export class Keeper {
       config.uniswapV3RouterAddress,
       config.curvePoolConfigs,
       config.curveRouterAddress,
-      config.crvusdAddress,
       config.vusdAddress,
       config.curveRouterRoutes,
     );

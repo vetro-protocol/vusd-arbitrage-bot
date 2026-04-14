@@ -28,7 +28,6 @@ export interface Config {
   // DEX aggregator API keys (optional — each enables an aggregator)
   oneInchApiKey?: string;
   zeroXApiKey?: string;
-  lifiEnabled: boolean;
 
   // On-chain quoters
   uniswapV3QuoterAddress: string;
@@ -88,7 +87,6 @@ export function loadConfig(): Config {
 
     oneInchApiKey: process.env.ONEINCH_API_KEY,
     zeroXApiKey: process.env.ZEROX_API_KEY,
-    lifiEnabled: process.env.LIFI_ENABLED === "true",
 
     uniswapV3QuoterAddress: C.UNISWAP_V3_QUOTER,
     uniswapV3RouterAddress: C.UNISWAP_V3_ROUTER,

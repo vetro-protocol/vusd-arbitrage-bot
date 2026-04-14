@@ -92,7 +92,6 @@ describe("E2E: Off-chain arbitrage pipeline", () => {
       enableCurve: false,
       oneInchApiKey: undefined,
       zeroXApiKey: undefined,
-      lifiEnabled: false,
       uniswapV3QuoterAddress: ethers.ZeroAddress,
       uniswapV3RouterAddress: ethers.ZeroAddress,
       curvePoolConfigs: {},

@@ -31,11 +31,9 @@ export class PriceMonitor {
 
   async getPriceData(stablecoin: StablecoinConfig): Promise<PriceData> {
     const testAmount = ethers.parseUnits("10000", stablecoin.decimals);
-    const testVusdAmount = ethers.parseUnits("10000", 18);
 
     const [
       gatewayMintOutput,
-      gatewayRedeemOutput,
       mintFeeBps,
       redeemFeeBps,
       dexSellQuote,
@@ -44,10 +42,6 @@ export class PriceMonitor {
       this.gateway.previewDeposit(
         stablecoin.address,
         testAmount,
-      ) as Promise<bigint>,
-      this.gateway.previewRedeem(
-        stablecoin.address,
-        testVusdAmount,
       ) as Promise<bigint>,
       this.gateway.mintFee(stablecoin.address) as Promise<bigint>,
       this.gateway.redeemFee(stablecoin.address) as Promise<bigint>,
@@ -61,7 +55,6 @@ export class PriceMonitor {
       dexQuote: dexSellQuote,
       dexBuyQuote,
       gatewayMintOutput,
-      gatewayRedeemOutput,
       mintFeeBps: Number(mintFeeBps),
       redeemFeeBps: Number(redeemFeeBps),
       stablecoin,

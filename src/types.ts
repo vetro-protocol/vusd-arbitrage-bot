@@ -85,8 +85,6 @@ export interface PriceData {
   dexBuyQuote: DexQuoteResult;
   /** Gateway previewDeposit result: VUSD out for depositing testAmount of stablecoin */
   gatewayMintOutput: bigint;
-  /** Gateway previewRedeem result: stablecoin out for redeeming testAmount of VUSD */
-  gatewayRedeemOutput: bigint;
   /** Mint fee in BPS */
   mintFeeBps: number;
   /** Redeem fee in BPS */

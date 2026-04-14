@@ -43,7 +43,6 @@ export class DexQuoter {
     routerAddress: string,
     private curvePoolConfigs: Record<string, CurvePoolConfig>,
     private curveRouterAddress?: string,
-    private crvusdAddress?: string,
     private vusdAddress?: string,
     private curveRouterRoutes?: Record<string, CurveRouterRouteConfig>,
   ) {
