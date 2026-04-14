@@ -88,8 +88,7 @@ export class OneInchAdapter implements AggregatorAdapter {
     const data = await res.json();
 
     const expectedOutput = BigInt(data.dstAmount);
-    const minAmountOut =
-      (expectedOutput * BigInt(10000 - p.slippageBps)) / 10000n;
+    const minAmountOut = (expectedOutput * BigInt(10000 - p.slippageBps)) / 10000n;
 
     return {
       target: data.tx.to,
@@ -174,10 +173,7 @@ export class LiFiAdapter implements AggregatorAdapter {
       url.searchParams.set("fromToken", p.srcToken);
       url.searchParams.set("toToken", p.destToken);
       url.searchParams.set("fromAmount", p.amount.toString());
-      url.searchParams.set(
-        "fromAddress",
-        "0x0000000000000000000000000000000000000001",
-      );
+      url.searchParams.set("fromAddress", "0x0000000000000000000000000000000000000001");
 
       const res = await fetch(url.toString(), {
         headers: {Accept: "application/json"},
@@ -212,8 +208,7 @@ export class LiFiAdapter implements AggregatorAdapter {
 
     return {
       target: data.transactionRequest.to,
-      approveTarget:
-        data.estimate.approvalAddress || data.transactionRequest.to,
+      approveTarget: data.estimate.approvalAddress || data.transactionRequest.to,
       swapCalldata: data.transactionRequest.data,
       minAmountOut: BigInt(data.estimate.toAmountMin),
     };

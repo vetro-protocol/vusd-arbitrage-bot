@@ -1,4 +1,4 @@
-import { ethers } from "ethers";
+import {ethers} from "ethers";
 import {
   FlashLoanProvider,
   FlashAmountTier,
@@ -79,8 +79,8 @@ export function loadConfig(): Config {
     vusdAddress: Constants.VUSD_ADDRESS,
 
     stablecoins: [
-      { address: Constants.USDC_ADDRESS, symbol: "USDC", decimals: 6 },
-      { address: Constants.USDT_ADDRESS, symbol: "USDT", decimals: 6 },
+      {address: Constants.USDC_ADDRESS, symbol: "USDC", decimals: 6},
+      {address: Constants.USDT_ADDRESS, symbol: "USDT", decimals: 6},
     ],
 
     flashLoanProviders: buildProviderList(),
@@ -225,10 +225,10 @@ function parseCurveRouterRoutes(): Record<string, CurveRouterRouteConfig> {
  * First match wins (sorted descending by deviationBps).
  */
 const DEFAULT_FLASH_TIERS: FlashAmountTier[] = [
-  { deviationBps: 500, amountUsd: 2000 }, // > 5%  → $2,000
-  { deviationBps: 200, amountUsd: 1000 }, // > 2%  → $1,000
-  { deviationBps: 50, amountUsd: 500 }, // > 0.5% → $500
-  { deviationBps: 0, amountUsd: 500 }, // default  → $500
+  {deviationBps: 500, amountUsd: 2000}, // > 5%  → $2,000
+  {deviationBps: 200, amountUsd: 1000}, // > 2%  → $1,000
+  {deviationBps: 50, amountUsd: 500}, // > 0.5% → $500
+  {deviationBps: 0, amountUsd: 500}, // default  → $500
 ];
 
 /**

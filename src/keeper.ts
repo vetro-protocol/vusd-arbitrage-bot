@@ -5,12 +5,7 @@ import {ProfitCalculator} from "./profitCalculator";
 import {SwapBuilder} from "./swapBuilder";
 import {Executor} from "./executor";
 import {ArbDirection, ArbOpportunity} from "./types";
-import {
-  AggregatorAdapter,
-  OneInchAdapter,
-  ZeroXAdapter,
-  LiFiAdapter,
-} from "./aggregators";
+import {AggregatorAdapter, OneInchAdapter, ZeroXAdapter, LiFiAdapter} from "./aggregators";
 import {DexQuoter} from "./dexQuoter";
 
 function sleep(ms: number): Promise<void> {
@@ -61,16 +56,8 @@ export class Keeper {
       config.curveRouterRoutes,
     );
 
-    this.priceMonitor = new PriceMonitor(
-      this.provider,
-      config,
-      aggregators,
-      dexQuoter,
-    );
-    this.profitCalculator = new ProfitCalculator(
-      config.minProfitUsd,
-      config.flashAmountTiers,
-    );
+    this.priceMonitor = new PriceMonitor(this.provider, config, aggregators, dexQuoter);
+    this.profitCalculator = new ProfitCalculator(config.minProfitUsd, config.flashAmountTiers);
     this.swapBuilder = new SwapBuilder(config, aggregators, dexQuoter);
     this.executor = new Executor(this.provider, config);
 
@@ -93,9 +80,7 @@ export class Keeper {
     console.log("═══════════════════════════════════════════════════");
     console.log("  VUSD Arbitrage Keeper");
     console.log("═══════════════════════════════════════════════════");
-    console.log(
-      `  Stablecoins : ${this.config.stablecoins.map((s) => s.symbol).join(", ")}`,
-    );
+    console.log(`  Stablecoins : ${this.config.stablecoins.map((s) => s.symbol).join(", ")}`);
     console.log(
       `  Providers   : ${this.config.flashLoanProviders.map((p) => `${p.address.slice(0, 10)}… (${p.feeBps}bps)`).join(", ")}`,
     );
@@ -121,21 +106,12 @@ export class Keeper {
       try {
         // 1. Get prices
         const priceData = await this.priceMonitor.getPriceData(stablecoin);
-        const deviationBps = Math.round(
-          Math.abs(priceData.vusdDexPrice - 1.0) * 10000,
-        );
-        const direction =
-          priceData.vusdDexPrice > 1.0
-            ? "ABOVE"
-            : priceData.vusdDexPrice < 1.0
-              ? "BELOW"
-              : "AT";
+        const deviationBps = Math.round(Math.abs(priceData.vusdDexPrice - 1.0) * 10000);
+        const direction = priceData.vusdDexPrice > 1.0 ? "ABOVE" : priceData.vusdDexPrice < 1.0 ? "BELOW" : "AT";
 
         // Skip if both DEX sources are "default" — no real price data
         if (priceData.dexQuote.source === "default" && priceData.dexBuyQuote.source === "default") {
-          console.log(
-            `[${ts()}] [${stablecoin.symbol}] No DEX quote available (all sources failed)`,
-          );
+          console.log(`[${ts()}] [${stablecoin.symbol}] No DEX quote available (all sources failed)`);
           continue;
         }
 
@@ -147,20 +123,12 @@ export class Keeper {
         }
 
         // 3. Determine flash amount based on price deviation
-        const flashAmount = this.profitCalculator.suggestFlashAmount(
-          priceData,
-          this.config.maxFlashAmount,
-        );
+        const flashAmount = this.profitCalculator.suggestFlashAmount(priceData, this.config.maxFlashAmount);
         const flashUsd = Number(flashAmount) / 10 ** stablecoin.decimals;
 
         // 4. Evaluate opportunity at the actual flash amount
         const estimatedGasCostUsd = 5.0;
-        const evaluation = this.profitCalculator.evaluate(
-          priceData,
-          provider,
-          flashAmount,
-          estimatedGasCostUsd,
-        );
+        const evaluation = this.profitCalculator.evaluate(priceData, provider, flashAmount, estimatedGasCostUsd);
 
         // Compute raw spread + profit for BOTH directions, pick the better one
         const flashFeeBps = provider.feeBps;
@@ -209,26 +177,18 @@ export class Keeper {
             continue;
           }
           if (cappedFlashAmount > capacity.maxWithdraw) {
-            const maxW = ethers.formatUnits(
-              capacity.maxWithdraw,
-              stablecoin.decimals,
-            );
-            console.log(
-              `[${ts()}] [${stablecoin.symbol}] Capping flash to Gateway maxWithdraw: $${maxW}`,
-            );
+            const maxW = ethers.formatUnits(capacity.maxWithdraw, stablecoin.decimals);
+            console.log(`[${ts()}] [${stablecoin.symbol}] Capping flash to Gateway maxWithdraw: $${maxW}`);
             cappedFlashAmount = capacity.maxWithdraw;
           }
         } else {
           if (capacity.maxMint === 0n) {
-            console.warn(
-              `[${ts()}] [${stablecoin.symbol}] SKIP MINT_AND_SELL: Gateway mint cap reached`,
-            );
+            console.warn(`[${ts()}] [${stablecoin.symbol}] SKIP MINT_AND_SELL: Gateway mint cap reached`);
             continue;
           }
         }
 
-        const cappedUsd =
-          Number(cappedFlashAmount) / 10 ** stablecoin.decimals;
+        const cappedUsd = Number(cappedFlashAmount) / 10 ** stablecoin.decimals;
         console.log(
           `[${ts()}] [${stablecoin.symbol}] >>> ${ArbDirection[evaluation.direction]} ` +
             `$${cappedUsd.toLocaleString()} ${stablecoin.symbol} | ` +
@@ -239,27 +199,14 @@ export class Keeper {
         let swapParams;
         if (evaluation.direction === ArbDirection.MINT_AND_SELL) {
           const vusdEstimate = priceData.gatewayMintOutput;
-          const scaledVusd =
-            (vusdEstimate * cappedFlashAmount) /
-            ethers.parseUnits("10000", stablecoin.decimals);
-          swapParams = await this.swapBuilder.buildSellVusdSwap(
-            scaledVusd,
-            stablecoin,
-            priceData.dexQuote,
-          );
+          const scaledVusd = (vusdEstimate * cappedFlashAmount) / ethers.parseUnits("10000", stablecoin.decimals);
+          swapParams = await this.swapBuilder.buildSellVusdSwap(scaledVusd, stablecoin, priceData.dexQuote);
         } else {
-          swapParams = await this.swapBuilder.buildBuyVusdSwap(
-            cappedFlashAmount,
-            stablecoin,
-            priceData.dexBuyQuote,
-          );
+          swapParams = await this.swapBuilder.buildBuyVusdSwap(cappedFlashAmount, stablecoin, priceData.dexBuyQuote);
         }
 
         // 7. Build opportunity
-        const minProfit = ethers.parseUnits(
-          String(this.config.minProfitUsd),
-          stablecoin.decimals,
-        );
+        const minProfit = ethers.parseUnits(String(this.config.minProfitUsd), stablecoin.decimals);
 
         const opportunity: ArbOpportunity = {
           direction: evaluation.direction,
@@ -275,9 +222,7 @@ export class Keeper {
         // 8. Execute
         const receipt = await this.executor.execute(opportunity);
         if (receipt) {
-          console.log(
-            `[${ts()}] [${stablecoin.symbol}] ARB EXECUTED! Tx: ${receipt.hash}`,
-          );
+          console.log(`[${ts()}] [${stablecoin.symbol}] ARB EXECUTED! Tx: ${receipt.hash}`);
         }
       } catch (error) {
         console.error(`[${ts()}] [${stablecoin.symbol}] Error:`, error);

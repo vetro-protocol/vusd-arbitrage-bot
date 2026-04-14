@@ -22,27 +22,14 @@ export class PriceMonitor {
     private aggregators: AggregatorAdapter[],
     private dexQuoter: DexQuoter,
   ) {
-    this.gateway = new ethers.Contract(
-      config.gatewayAddress,
-      GATEWAY_ABI,
-      provider,
-    );
+    this.gateway = new ethers.Contract(config.gatewayAddress, GATEWAY_ABI, provider);
   }
 
   async getPriceData(stablecoin: StablecoinConfig): Promise<PriceData> {
     const testAmount = ethers.parseUnits("10000", stablecoin.decimals);
 
-    const [
-      gatewayMintOutput,
-      mintFeeBps,
-      redeemFeeBps,
-      dexSellQuote,
-      dexBuyQuote,
-    ] = await Promise.all([
-      this.gateway.previewDeposit(
-        stablecoin.address,
-        testAmount,
-      ) as Promise<bigint>,
+    const [gatewayMintOutput, mintFeeBps, redeemFeeBps, dexSellQuote, dexBuyQuote] = await Promise.all([
+      this.gateway.previewDeposit(stablecoin.address, testAmount) as Promise<bigint>,
       this.gateway.mintFee(stablecoin.address) as Promise<bigint>,
       this.gateway.redeemFee(stablecoin.address) as Promise<bigint>,
       this.fetchDexQuote(stablecoin, true),
@@ -61,9 +48,7 @@ export class PriceMonitor {
     };
   }
 
-  async getCapacity(
-    stablecoin: StablecoinConfig,
-  ): Promise<{maxMint: bigint; maxWithdraw: bigint}> {
+  async getCapacity(stablecoin: StablecoinConfig): Promise<{maxMint: bigint; maxWithdraw: bigint}> {
     const [maxMint, maxWithdraw] = await Promise.all([
       this.gateway.maxMint() as Promise<bigint>,
       this.gateway.maxWithdraw(stablecoin.address) as Promise<bigint>,
@@ -77,10 +62,7 @@ export class PriceMonitor {
    *
    * @param vusdIsInput true = sell direction (VUSD→stablecoin), false = buy direction (stablecoin→VUSD)
    */
-  private async fetchDexQuote(
-    stablecoin: StablecoinConfig,
-    vusdIsInput: boolean,
-  ): Promise<DexQuoteResult> {
+  private async fetchDexQuote(stablecoin: StablecoinConfig, vusdIsInput: boolean): Promise<DexQuoteResult> {
     const dirLabel = vusdIsInput ? "sell" : "buy";
 
     // For sell: quote 1000 VUSD → stablecoin, price = stablecoin_out / 1000
@@ -104,12 +86,8 @@ export class PriceMonitor {
         });
 
         if (destAmount !== null && destAmount > 0n) {
-          const price = this.computeVusdPrice(
-            quoteAmount, destAmount, srcDecimals, destDecimals, vusdIsInput,
-          );
-          console.log(
-            `  [${stablecoin.symbol}] DEX ${dirLabel} price via ${adapter.name}: ${price.toFixed(6)}`,
-          );
+          const price = this.computeVusdPrice(quoteAmount, destAmount, srcDecimals, destDecimals, vusdIsInput);
+          console.log(`  [${stablecoin.symbol}] DEX ${dirLabel} price via ${adapter.name}: ${price.toFixed(6)}`);
           return {price, source: adapter.name};
         }
       } catch (error) {
@@ -119,18 +97,10 @@ export class PriceMonitor {
 
     // 2. Try Uniswap V3 on-chain quoter
     if (this.config.enableUniswapV3) {
-      const uniQuote = await this.dexQuoter.quoteUniswapV3(
-        srcToken,
-        destToken,
-        quoteAmount,
-        destDecimals,
-        srcDecimals,
-      );
+      const uniQuote = await this.dexQuoter.quoteUniswapV3(srcToken, destToken, quoteAmount, destDecimals, srcDecimals);
       if (uniQuote) {
         // For buy direction, convert the raw ratio to cost-per-VUSD
-        const price = vusdIsInput
-          ? uniQuote.price
-          : 1000 / (uniQuote.price * 1000);
+        const price = vusdIsInput ? uniQuote.price : 1000 / (uniQuote.price * 1000);
         console.log(
           `  [${stablecoin.symbol}] DEX ${dirLabel} price via uniswap_v3 (fee ${uniQuote.feeTier}): ${price.toFixed(6)}`,
         );
@@ -148,12 +118,8 @@ export class PriceMonitor {
         vusdIsInput,
       );
       if (curveQuote) {
-        const price = vusdIsInput
-          ? curveQuote.price
-          : 1000 / (curveQuote.price * 1000);
-        console.log(
-          `  [${stablecoin.symbol}] DEX ${dirLabel} price via curve: ${price.toFixed(6)}`,
-        );
+        const price = vusdIsInput ? curveQuote.price : 1000 / (curveQuote.price * 1000);
+        console.log(`  [${stablecoin.symbol}] DEX ${dirLabel} price via curve: ${price.toFixed(6)}`);
         return {...curveQuote, price};
       }
     }
@@ -168,20 +134,14 @@ export class PriceMonitor {
         vusdIsInput,
       );
       if (curveRouterQuote) {
-        const price = vusdIsInput
-          ? curveRouterQuote.price
-          : 1000 / (curveRouterQuote.price * 1000);
-        console.log(
-          `  [${stablecoin.symbol}] DEX ${dirLabel} price via curve_router: ${price.toFixed(6)}`,
-        );
+        const price = vusdIsInput ? curveRouterQuote.price : 1000 / (curveRouterQuote.price * 1000);
+        console.log(`  [${stablecoin.symbol}] DEX ${dirLabel} price via curve_router: ${price.toFixed(6)}`);
         return {...curveRouterQuote, price};
       }
     }
 
     // 5. All sources failed
-    console.warn(
-      `  [${stablecoin.symbol}] All DEX ${dirLabel} price sources failed, defaulting to 1.0`,
-    );
+    console.warn(`  [${stablecoin.symbol}] All DEX ${dirLabel} price sources failed, defaulting to 1.0`);
     return {price: 1.0, source: "default"};
   }
 

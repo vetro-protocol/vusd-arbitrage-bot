@@ -89,25 +89,15 @@ export class SwapBuilder {
       }
 
       // Get a fresh quote for the exact swap amount
-      const freshQuote = await this.dexQuoter.quoteUniswapV3(
-        srcToken,
-        destToken,
-        amount,
-        destDecimals,
-        srcDecimals,
-      );
+      const freshQuote = await this.dexQuoter.quoteUniswapV3(srcToken, destToken, amount, destDecimals, srcDecimals);
       if (!freshQuote) {
         throw new Error("Uniswap V3 fresh quote failed");
       }
 
       const expectedOut = BigInt(
-        Math.floor(
-          ((freshQuote.price * Number(amount)) / 10 ** srcDecimals) *
-            10 ** destDecimals,
-        ),
+        Math.floor(((freshQuote.price * Number(amount)) / 10 ** srcDecimals) * 10 ** destDecimals),
       );
-      const minAmountOut =
-        (expectedOut * BigInt(10000 - this.config.slippageBps)) / 10000n;
+      const minAmountOut = (expectedOut * BigInt(10000 - this.config.slippageBps)) / 10000n;
 
       return this.dexQuoter.buildUniswapV3Swap(
         srcToken,
@@ -121,11 +111,7 @@ export class SwapBuilder {
 
     // Curve — build calldata locally
     if (source === "curve") {
-      if (
-        !dexQuote.poolAddress ||
-        dexQuote.vusdIndex === undefined ||
-        dexQuote.stablecoinIndex === undefined
-      ) {
+      if (!dexQuote.poolAddress || dexQuote.vusdIndex === undefined || dexQuote.stablecoinIndex === undefined) {
         throw new Error("Curve quote missing pool config");
       }
 
@@ -147,21 +133,11 @@ export class SwapBuilder {
       }
 
       const expectedOut = BigInt(
-        Math.floor(
-          ((freshQuote.price * Number(amount)) / 10 ** srcDecimals) *
-            10 ** destDecimals,
-        ),
+        Math.floor(((freshQuote.price * Number(amount)) / 10 ** srcDecimals) * 10 ** destDecimals),
       );
-      const minAmountOut =
-        (expectedOut * BigInt(10000 - this.config.slippageBps)) / 10000n;
+      const minAmountOut = (expectedOut * BigInt(10000 - this.config.slippageBps)) / 10000n;
 
-      return this.dexQuoter.buildCurveSwap(
-        dexQuote.poolAddress,
-        i,
-        j,
-        amount,
-        minAmountOut,
-      );
+      return this.dexQuoter.buildCurveSwap(dexQuote.poolAddress, i, j, amount, minAmountOut);
     }
 
     // Curve Router — multi-hop via crvUSD, build calldata locally
@@ -181,24 +157,13 @@ export class SwapBuilder {
       }
 
       const expectedOut = BigInt(
-        Math.floor(
-          ((freshQuote.price * Number(amount)) / 10 ** srcDecimals) *
-            10 ** destDecimals,
-        ),
+        Math.floor(((freshQuote.price * Number(amount)) / 10 ** srcDecimals) * 10 ** destDecimals),
       );
-      const minAmountOut =
-        (expectedOut * BigInt(10000 - this.config.slippageBps)) / 10000n;
+      const minAmountOut = (expectedOut * BigInt(10000 - this.config.slippageBps)) / 10000n;
 
-      return this.dexQuoter.buildCurveRouterSwap(
-        stablecoinAddress,
-        amount,
-        minAmountOut,
-        vusdIsInput,
-      );
+      return this.dexQuoter.buildCurveRouterSwap(stablecoinAddress, amount, minAmountOut, vusdIsInput);
     }
 
-    throw new Error(
-      `Cannot build swap for source "${source}" — no DEX route available`,
-    );
+    throw new Error(`Cannot build swap for source "${source}" — no DEX route available`);
   }
 }

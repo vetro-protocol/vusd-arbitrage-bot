@@ -1,10 +1,5 @@
 import {ethers} from "ethers";
-import {
-  CurvePoolConfig,
-  CurveRouterRouteConfig,
-  DexQuoteResult,
-  SwapParams,
-} from "./types";
+import {CurvePoolConfig, CurveRouterRouteConfig, DexQuoteResult, SwapParams} from "./types";
 
 // Uniswap V3 QuoterV2 — quoteExactInputSingle is NOT a view function,
 // it reverts after computing. Must be called via staticCall.
@@ -50,11 +45,7 @@ export class DexQuoter {
     this.routerAddress = routerAddress;
 
     if (curveRouterAddress) {
-      this.curveRouter = new ethers.Contract(
-        curveRouterAddress,
-        CURVE_ROUTER_ABI,
-        provider,
-      );
+      this.curveRouter = new ethers.Contract(curveRouterAddress, CURVE_ROUTER_ABI, provider);
     }
   }
 
@@ -102,10 +93,7 @@ export class DexQuoter {
 
     if (bestAmountOut === 0n) return null;
 
-    const price =
-      Number(bestAmountOut) /
-      10 ** destDecimals /
-      (Number(amountIn) / 10 ** srcDecimals);
+    const price = Number(bestAmountOut) / 10 ** destDecimals / (Number(amountIn) / 10 ** srcDecimals);
 
     return {
       price,
@@ -166,20 +154,13 @@ export class DexQuoter {
     if (!poolConfig) return null;
 
     try {
-      const pool = new ethers.Contract(
-        poolConfig.poolAddress,
-        CURVE_POOL_ABI,
-        this.provider,
-      );
+      const pool = new ethers.Contract(poolConfig.poolAddress, CURVE_POOL_ABI, this.provider);
       const i = vusdIsInput ? poolConfig.vusdIndex : poolConfig.stablecoinIndex;
       const j = vusdIsInput ? poolConfig.stablecoinIndex : poolConfig.vusdIndex;
 
       const amountOut: bigint = await pool.get_dy(i, j, amountIn);
 
-      const price =
-        Number(amountOut) /
-        10 ** destDecimals /
-        (Number(amountIn) / 10 ** srcDecimals);
+      const price = Number(amountOut) / 10 ** destDecimals / (Number(amountIn) / 10 ** srcDecimals);
 
       return {
         price,
@@ -189,10 +170,7 @@ export class DexQuoter {
         stablecoinIndex: poolConfig.stablecoinIndex,
       };
     } catch (error) {
-      console.warn(
-        `  [curve] Quote failed:`,
-        error instanceof Error ? error.message : error,
-      );
+      console.warn(`  [curve] Quote failed:`, error instanceof Error ? error.message : error);
       return null;
     }
   }
@@ -200,20 +178,9 @@ export class DexQuoter {
   /**
    * Build SwapParams for a Curve pool exchange().
    */
-  buildCurveSwap(
-    poolAddress: string,
-    i: number,
-    j: number,
-    amountIn: bigint,
-    minAmountOut: bigint,
-  ): SwapParams {
+  buildCurveSwap(poolAddress: string, i: number, j: number, amountIn: bigint, minAmountOut: bigint): SwapParams {
     const poolIface = new ethers.Interface(CURVE_POOL_ABI);
-    const swapCalldata = poolIface.encodeFunctionData("exchange", [
-      i,
-      j,
-      amountIn,
-      minAmountOut,
-    ]);
+    const swapCalldata = poolIface.encodeFunctionData("exchange", [i, j, amountIn, minAmountOut]);
 
     return {
       target: poolAddress,
@@ -248,7 +215,12 @@ export class DexQuoter {
           routeConfig.intermediateToken,
           hop1.pool,
           stablecoinAddress,
-          Z, Z, Z, Z, Z, Z,
+          Z,
+          Z,
+          Z,
+          Z,
+          Z,
+          Z,
         ],
         swapParams: [
           [hop2.j, hop2.i, hop2.swapType, hop2.poolType, hop2.nCoins],
@@ -267,7 +239,12 @@ export class DexQuoter {
           routeConfig.intermediateToken,
           hop2.pool,
           this.vusdAddress!,
-          Z, Z, Z, Z, Z, Z,
+          Z,
+          Z,
+          Z,
+          Z,
+          Z,
+          Z,
         ],
         swapParams: [
           [hop1.i, hop1.j, hop1.swapType, hop1.poolType, hop1.nCoins],
@@ -294,37 +271,22 @@ export class DexQuoter {
       return null;
     }
 
-    const routeConfig =
-      this.curveRouterRoutes[stablecoinAddress.toLowerCase()];
+    const routeConfig = this.curveRouterRoutes[stablecoinAddress.toLowerCase()];
     if (!routeConfig) return null;
 
     try {
-      const {route, swapParams} = this.buildRouteArrays(
-        stablecoinAddress,
-        routeConfig,
-        vusdIsInput,
-      );
+      const {route, swapParams} = this.buildRouteArrays(stablecoinAddress, routeConfig, vusdIsInput);
 
-      const amountOut: bigint = await this.curveRouter.get_dy(
-        route,
-        swapParams,
-        amountIn,
-      );
+      const amountOut: bigint = await this.curveRouter.get_dy(route, swapParams, amountIn);
 
-      const price =
-        Number(amountOut) /
-        10 ** destDecimals /
-        (Number(amountIn) / 10 ** srcDecimals);
+      const price = Number(amountOut) / 10 ** destDecimals / (Number(amountIn) / 10 ** srcDecimals);
 
       return {
         price,
         source: "curve_router",
       };
     } catch (error) {
-      console.warn(
-        `  [curve_router] Quote failed:`,
-        error instanceof Error ? error.message : error,
-      );
+      console.warn(`  [curve_router] Quote failed:`, error instanceof Error ? error.message : error);
       return null;
     }
   }
@@ -342,27 +304,15 @@ export class DexQuoter {
       throw new Error("Curve Router not configured");
     }
 
-    const routeConfig =
-      this.curveRouterRoutes[stablecoinAddress.toLowerCase()];
+    const routeConfig = this.curveRouterRoutes[stablecoinAddress.toLowerCase()];
     if (!routeConfig) {
-      throw new Error(
-        `No Curve Router route configured for ${stablecoinAddress}`,
-      );
+      throw new Error(`No Curve Router route configured for ${stablecoinAddress}`);
     }
 
-    const {route, swapParams} = this.buildRouteArrays(
-      stablecoinAddress,
-      routeConfig,
-      vusdIsInput,
-    );
+    const {route, swapParams} = this.buildRouteArrays(stablecoinAddress, routeConfig, vusdIsInput);
 
     const routerIface = new ethers.Interface(CURVE_ROUTER_ABI);
-    const swapCalldata = routerIface.encodeFunctionData("exchange", [
-      route,
-      swapParams,
-      amountIn,
-      minAmountOut,
-    ]);
+    const swapCalldata = routerIface.encodeFunctionData("exchange", [route, swapParams, amountIn, minAmountOut]);
 
     return {
       target: this.curveRouterAddress,

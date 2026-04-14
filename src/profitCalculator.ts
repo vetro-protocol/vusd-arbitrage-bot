@@ -1,10 +1,5 @@
 import {ethers} from "ethers";
-import {
-  ArbDirection,
-  FlashAmountTier,
-  PriceData,
-  FlashLoanProviderConfig,
-} from "./types";
+import {ArbDirection, FlashAmountTier, PriceData, FlashLoanProviderConfig} from "./types";
 
 export class ProfitCalculator {
   constructor(
@@ -25,8 +20,7 @@ export class ProfitCalculator {
     const decimals = priceData.stablecoin.decimals;
 
     // Find the first tier whose threshold is met
-    let amountUsd = this.flashAmountTiers[this.flashAmountTiers.length - 1]
-      ?.amountUsd ?? 500;
+    let amountUsd = this.flashAmountTiers[this.flashAmountTiers.length - 1]?.amountUsd ?? 500;
     for (const tier of this.flashAmountTiers) {
       if (deviationBps >= tier.deviationBps) {
         amountUsd = tier.amountUsd;
@@ -57,8 +51,7 @@ export class ProfitCalculator {
     const flashFeeBps = provider.feeBps;
 
     // Convert flash amount to USD-equivalent notional
-    const notionalUsd =
-      Number(flashAmount) / 10 ** stablecoin.decimals;
+    const notionalUsd = Number(flashAmount) / 10 ** stablecoin.decimals;
 
     // VUSD sell price > $1 on DEX → mint and sell
     // Use sell price: how much stablecoin we get per VUSD sold
@@ -66,8 +59,7 @@ export class ProfitCalculator {
       const gatewayMintCost = 1 + mintFeeBps / 10000 + flashFeeBps / 10000;
       const spreadPerDollar = vusdDexPrice - gatewayMintCost;
       const spreadBps = Math.round(spreadPerDollar * 10000);
-      const estimatedProfitUsd =
-        spreadPerDollar * notionalUsd - estimatedGasCostUsd;
+      const estimatedProfitUsd = spreadPerDollar * notionalUsd - estimatedGasCostUsd;
 
       if (estimatedProfitUsd >= this.minProfitUsd && spreadBps > 0) {
         return {
@@ -81,12 +73,10 @@ export class ProfitCalculator {
     // VUSD buy price < $1 on DEX → buy and redeem
     // Use buy price: how much stablecoin it costs to buy 1 VUSD
     if (vusdDexBuyPrice < 1.0) {
-      const gatewayRedeemReturn =
-        1 - redeemFeeBps / 10000 - flashFeeBps / 10000;
+      const gatewayRedeemReturn = 1 - redeemFeeBps / 10000 - flashFeeBps / 10000;
       const spreadPerDollar = gatewayRedeemReturn - vusdDexBuyPrice;
       const spreadBps = Math.round(spreadPerDollar * 10000);
-      const estimatedProfitUsd =
-        spreadPerDollar * notionalUsd - estimatedGasCostUsd;
+      const estimatedProfitUsd = spreadPerDollar * notionalUsd - estimatedGasCostUsd;
 
       if (estimatedProfitUsd >= this.minProfitUsd && spreadBps > 0) {
         return {
