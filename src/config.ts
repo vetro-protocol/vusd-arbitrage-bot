@@ -1,4 +1,4 @@
-import {ethers} from "ethers";
+import { ethers } from "ethers";
 import {
   FlashLoanProvider,
   FlashAmountTier,
@@ -8,7 +8,7 @@ import {
   CurveRouterRouteConfig,
   CurveRouterHop,
 } from "./types";
-import * as C from "./constants";
+import * as Constants from "./constants";
 
 export interface Config {
   rpcUrl: string;
@@ -74,13 +74,13 @@ export function loadConfig(): Config {
     rpcUrl: process.env.ETHEREUM_RPC_URL!,
     chainId: 1,
 
-    vusdArbitrageAddress: C.VUSD_ARBITRAGE_ADDRESS,
-    gatewayAddress: C.GATEWAY_ADDRESS,
-    vusdAddress: C.VUSD_ADDRESS,
+    vusdArbitrageAddress: Constants.VUSD_ARBITRAGE_ADDRESS,
+    gatewayAddress: Constants.GATEWAY_ADDRESS,
+    vusdAddress: Constants.VUSD_ADDRESS,
 
     stablecoins: [
-      {address: C.USDC_ADDRESS, symbol: "USDC", decimals: 6},
-      {address: C.USDT_ADDRESS, symbol: "USDT", decimals: 6},
+      { address: Constants.USDC_ADDRESS, symbol: "USDC", decimals: 6 },
+      { address: Constants.USDT_ADDRESS, symbol: "USDT", decimals: 6 },
     ],
 
     flashLoanProviders: buildProviderList(),
@@ -88,12 +88,12 @@ export function loadConfig(): Config {
     oneInchApiKey: process.env.ONEINCH_API_KEY,
     zeroXApiKey: process.env.ZEROX_API_KEY,
 
-    uniswapV3QuoterAddress: C.UNISWAP_V3_QUOTER,
-    uniswapV3RouterAddress: C.UNISWAP_V3_ROUTER,
+    uniswapV3QuoterAddress: Constants.UNISWAP_V3_QUOTER,
+    uniswapV3RouterAddress: Constants.UNISWAP_V3_ROUTER,
     curvePoolConfigs: parseCurvePoolConfigs(),
 
-    curveRouterAddress: C.CURVE_ROUTER_ADDRESS,
-    crvusdAddress: C.CRVUSD_ADDRESS,
+    curveRouterAddress: Constants.CURVE_ROUTER_ADDRESS,
+    crvusdAddress: Constants.CRVUSD_ADDRESS,
     curveRouterRoutes: parseCurveRouterRoutes(),
 
     enableOneInch: process.env.ENABLE_ONEINCH !== "false",
@@ -121,7 +121,7 @@ function buildProviderList(): FlashLoanProviderConfig[] {
   // Morpho — 0 fee
   providers.push({
     provider: FlashLoanProvider.MORPHO,
-    address: C.MORPHO_ADDRESS,
+    address: Constants.MORPHO_ADDRESS,
     feeBps: 0,
   });
 
@@ -137,7 +137,7 @@ function buildProviderList(): FlashLoanProviderConfig[] {
   // Aave V3 — ~5 bps fee
   providers.push({
     provider: FlashLoanProvider.AAVE_V3,
-    address: C.AAVE_V3_POOL,
+    address: Constants.AAVE_V3_POOL,
     feeBps: 5,
   });
 
@@ -154,7 +154,7 @@ function parseCurvePoolConfigs(): Record<string, CurvePoolConfig> {
   const curveUsdc = process.env.CURVE_POOL_USDC;
   if (curveUsdc) {
     const [poolAddress, vusdIdx, stableIdx] = curveUsdc.split(":");
-    configs[C.USDC_ADDRESS.toLowerCase()] = {
+    configs[Constants.USDC_ADDRESS.toLowerCase()] = {
       poolAddress,
       vusdIndex: parseInt(vusdIdx),
       stablecoinIndex: parseInt(stableIdx),
@@ -164,7 +164,7 @@ function parseCurvePoolConfigs(): Record<string, CurvePoolConfig> {
   const curveUsdt = process.env.CURVE_POOL_USDT;
   if (curveUsdt) {
     const [poolAddress, vusdIdx, stableIdx] = curveUsdt.split(":");
-    configs[C.USDT_ADDRESS.toLowerCase()] = {
+    configs[Constants.USDT_ADDRESS.toLowerCase()] = {
       poolAddress,
       vusdIndex: parseInt(vusdIdx),
       stablecoinIndex: parseInt(stableIdx),
@@ -201,18 +201,18 @@ function parseCurveRouterRoutes(): Record<string, CurveRouterRouteConfig> {
   const routeUsdc = process.env.CURVE_ROUTER_ROUTE_USDC;
   if (routeUsdc) {
     const [hop1Raw, hop2Raw] = routeUsdc.split("|");
-    configs[C.USDC_ADDRESS.toLowerCase()] = {
+    configs[Constants.USDC_ADDRESS.toLowerCase()] = {
       hops: [parseHop(hop1Raw), parseHop(hop2Raw)],
-      intermediateToken: C.CRVUSD_ADDRESS,
+      intermediateToken: Constants.CRVUSD_ADDRESS,
     };
   }
 
   const routeUsdt = process.env.CURVE_ROUTER_ROUTE_USDT;
   if (routeUsdt) {
     const [hop1Raw, hop2Raw] = routeUsdt.split("|");
-    configs[C.USDT_ADDRESS.toLowerCase()] = {
+    configs[Constants.USDT_ADDRESS.toLowerCase()] = {
       hops: [parseHop(hop1Raw), parseHop(hop2Raw)],
-      intermediateToken: C.CRVUSD_ADDRESS,
+      intermediateToken: Constants.CRVUSD_ADDRESS,
     };
   }
 
@@ -225,10 +225,10 @@ function parseCurveRouterRoutes(): Record<string, CurveRouterRouteConfig> {
  * First match wins (sorted descending by deviationBps).
  */
 const DEFAULT_FLASH_TIERS: FlashAmountTier[] = [
-  {deviationBps: 500, amountUsd: 2000}, // > 5%  → $2,000
-  {deviationBps: 200, amountUsd: 1000}, // > 2%  → $1,000
-  {deviationBps: 50, amountUsd: 500}, // > 0.5% → $500
-  {deviationBps: 0, amountUsd: 500}, // default  → $500
+  { deviationBps: 500, amountUsd: 2000 }, // > 5%  → $2,000
+  { deviationBps: 200, amountUsd: 1000 }, // > 2%  → $1,000
+  { deviationBps: 50, amountUsd: 500 }, // > 0.5% → $500
+  { deviationBps: 0, amountUsd: 500 }, // default  → $500
 ];
 
 /**
@@ -251,10 +251,7 @@ function parseFlashAmountTiers(): FlashAmountTier[] {
     tiers.sort((a, b) => b.deviationBps - a.deviationBps);
     return tiers;
   } catch (e) {
-    console.warn(
-      "Failed to parse FLASH_AMOUNT_TIERS, using defaults:",
-      e instanceof Error ? e.message : e,
-    );
+    console.warn("Failed to parse FLASH_AMOUNT_TIERS, using defaults:", e instanceof Error ? e.message : e);
     return DEFAULT_FLASH_TIERS;
   }
 }
