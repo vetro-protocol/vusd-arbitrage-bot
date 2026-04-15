@@ -1,10 +1,10 @@
 import {ethers} from "ethers";
 import {Config} from "./config";
-import {ArbDirection, ArbOpportunity, FlashLoanProvider, SwapParams} from "./types";
+import {ArbDirection, ArbOpportunity, SwapParams} from "./types";
 
 const ARB_ABI = [
-  "function mintAndSell(uint8 provider_, address stablecoin_, uint256 flashAmount_, tuple(address target, address approveTarget, bytes swapCalldata, uint256 minAmountOut) swapParams_, uint256 minProfit_) returns (int256)",
-  "function buyAndRedeem(uint8 provider_, address stablecoin_, uint256 flashAmount_, tuple(address target, address approveTarget, bytes swapCalldata, uint256 minAmountOut) swapParams_, uint256 minProfit_) returns (int256)",
+  "function mintAndSell(address stablecoin_, uint256 flashAmount_, tuple(address target, address approveTarget, bytes swapCalldata, uint256 minAmountOut) swapParams_, uint256 minProfit_) returns (int256)",
+  "function buyAndRedeem(address stablecoin_, uint256 flashAmount_, tuple(address target, address approveTarget, bytes swapCalldata, uint256 minAmountOut) swapParams_, uint256 minProfit_) returns (int256)",
 ];
 
 export class Executor {
@@ -30,7 +30,6 @@ export class Executor {
       let profit: bigint;
       if (opportunity.direction === ArbDirection.MINT_AND_SELL) {
         profit = await this.arbContract.mintAndSell.staticCall(
-          opportunity.provider,
           opportunity.stablecoin.address,
           opportunity.flashAmount,
           swapTuple,
@@ -38,7 +37,6 @@ export class Executor {
         );
       } else {
         profit = await this.arbContract.buyAndRedeem.staticCall(
-          opportunity.provider,
           opportunity.stablecoin.address,
           opportunity.flashAmount,
           swapTuple,
@@ -91,7 +89,6 @@ export class Executor {
 
       if (opportunity.direction === ArbDirection.MINT_AND_SELL) {
         tx = await this.arbContract.mintAndSell(
-          opportunity.provider,
           opportunity.stablecoin.address,
           opportunity.flashAmount,
           swapTuple,
@@ -99,7 +96,6 @@ export class Executor {
         );
       } else {
         tx = await this.arbContract.buyAndRedeem(
-          opportunity.provider,
           opportunity.stablecoin.address,
           opportunity.flashAmount,
           swapTuple,

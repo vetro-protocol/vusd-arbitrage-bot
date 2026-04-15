@@ -15,7 +15,6 @@ export const USDT_ADDRESS = "0xdAC17F958D2ee523a2206206994597C13D831ec7";
 export const CRVUSD_ADDRESS = "0xf939E0A03FB07F59A73314E73794Be0E57ac1b4E";
 
 // ── Flash loan providers ─────────────────────────────────────────────────────
-export const AAVE_V3_POOL = "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2";
 export const MORPHO_ADDRESS = "0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb";
 
 // ── DEX routers / quoters ────────────────────────────────────────────────────

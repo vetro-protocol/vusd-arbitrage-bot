@@ -1,9 +1,7 @@
 import {ethers} from "ethers";
 import {
-  FlashLoanProvider,
   FlashAmountTier,
   StablecoinConfig,
-  FlashLoanProviderConfig,
   CurvePoolConfig,
   CurveRouterRouteConfig,
   CurveRouterHop,
@@ -21,9 +19,6 @@ export interface Config {
 
   // Stablecoins to monitor
   stablecoins: StablecoinConfig[];
-
-  // Flash loan providers (sorted by fee ascending — Morpho/Balancer first)
-  flashLoanProviders: FlashLoanProviderConfig[];
 
   // DEX aggregator API keys (optional — each enables an aggregator)
   oneInchApiKey?: string;
@@ -56,6 +51,7 @@ export interface Config {
   pollIntervalMs: number;
   maxGasPriceGwei: number;
   slippageBps: number;
+  estimatedGasCostUsd: number;
 
   // Keeper wallet
   privateKey: string;
@@ -83,8 +79,6 @@ export function loadConfig(): Config {
       {address: Constants.USDT_ADDRESS, symbol: "USDT", decimals: 6},
     ],
 
-    flashLoanProviders: buildProviderList(),
-
     oneInchApiKey: process.env.ONEINCH_API_KEY,
     zeroXApiKey: process.env.ZEROX_API_KEY,
 
@@ -110,38 +104,10 @@ export function loadConfig(): Config {
     pollIntervalMs: parseInt(process.env.POLL_INTERVAL_MS || "5000"),
     maxGasPriceGwei: parseInt(process.env.MAX_GAS_PRICE_GWEI || "50"),
     slippageBps: parseInt(process.env.SLIPPAGE_BPS || "50"),
+    estimatedGasCostUsd: parseFloat(process.env.ESTIMATED_GAS_COST_USD || "5"),
 
     privateKey: process.env.PRIVATE_KEY!,
   };
-}
-
-function buildProviderList(): FlashLoanProviderConfig[] {
-  const providers: FlashLoanProviderConfig[] = [];
-
-  // Morpho — 0 fee
-  providers.push({
-    provider: FlashLoanProvider.MORPHO,
-    address: Constants.MORPHO_ADDRESS,
-    feeBps: 0,
-  });
-
-  // Balancer — 0 fee (optional, only if address provided)
-  if (process.env.BALANCER_VAULT) {
-    providers.push({
-      provider: FlashLoanProvider.BALANCER,
-      address: process.env.BALANCER_VAULT,
-      feeBps: 0,
-    });
-  }
-
-  // Aave V3 — ~5 bps fee
-  providers.push({
-    provider: FlashLoanProvider.AAVE_V3,
-    address: Constants.AAVE_V3_POOL,
-    feeBps: 5,
-  });
-
-  return providers;
 }
 
 /**

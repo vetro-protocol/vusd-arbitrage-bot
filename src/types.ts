@@ -1,13 +1,8 @@
-export enum FlashLoanProvider {
-  AAVE_V3 = 0,
-  MORPHO = 1,
-  BALANCER = 2,
-}
-
 export enum ArbDirection {
   MINT_AND_SELL = 0,
   BUY_AND_REDEEM = 1,
 }
+
 
 export interface SwapParams {
   target: string;
@@ -20,12 +15,6 @@ export interface StablecoinConfig {
   address: string;
   symbol: string;
   decimals: number;
-}
-
-export interface FlashLoanProviderConfig {
-  provider: FlashLoanProvider;
-  address: string;
-  feeBps: number;
 }
 
 export type DexSource = "1inch" | "0x" | "lifi" | "uniswap_v3" | "curve" | "curve_router" | "default";
@@ -101,7 +90,6 @@ export interface ArbOpportunity {
   stablecoin: StablecoinConfig;
   flashAmount: bigint;
   swapParams: SwapParams;
-  provider: FlashLoanProvider;
   estimatedProfitUsd: number;
   dexPriceVusd: number;
   minProfit: bigint;

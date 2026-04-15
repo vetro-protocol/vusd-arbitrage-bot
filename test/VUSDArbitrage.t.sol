@@ -55,7 +55,7 @@ contract VUSDArbitrageTest is Test {
 
         // Set Morpho as flash loan provider
         vm.prank(owner);
-        arb.setProviderAddress(VUSDArbitrage.FlashLoanProvider.MORPHO, address(morpho));
+        arb.setMorpho(address(morpho));
 
         // Whitelist arb contract for instant redeem
         gateway.addToInstantRedeemWhitelist(address(arb));
@@ -90,7 +90,7 @@ contract VUSDArbitrageTest is Test {
 
         vm.prank(keeper);
         int256 profit = arb.mintAndSell(
-            VUSDArbitrage.FlashLoanProvider.MORPHO, address(usdc), flashAmount, swapParams, 0
+            address(usdc), flashAmount, swapParams, 0
         );
 
         // Profit should be ~2000 USDC (2% of 100k)
@@ -131,7 +131,7 @@ contract VUSDArbitrageTest is Test {
 
         vm.prank(keeper);
         int256 profit = arb.mintAndSell(
-            VUSDArbitrage.FlashLoanProvider.MORPHO, address(usdc), flashAmount, swapParams, 0
+            address(usdc), flashAmount, swapParams, 0
         );
 
         // Profit should be ~2500 USDC (5% of 50k)
@@ -169,7 +169,7 @@ contract VUSDArbitrageTest is Test {
 
         vm.prank(keeper);
         int256 profit = arb.buyAndRedeem(
-            VUSDArbitrage.FlashLoanProvider.MORPHO, address(usdc), flashAmount, swapParams, 0
+            address(usdc), flashAmount, swapParams, 0
         );
 
         // Profit = bought VUSD cheap at 0.97, redeemed at ~0.997 (1 - 0.3% redeem fee)
@@ -205,7 +205,7 @@ contract VUSDArbitrageTest is Test {
 
         vm.prank(keeper);
         int256 profit = arb.buyAndRedeem(
-            VUSDArbitrage.FlashLoanProvider.MORPHO, address(usdc), flashAmount, swapParams, 0
+            address(usdc), flashAmount, swapParams, 0
         );
 
         assertGt(profit, 0, "Should be profitable");
@@ -234,7 +234,6 @@ contract VUSDArbitrageTest is Test {
         vm.prank(keeper);
         vm.expectRevert(); // InsufficientProfit
         arb.mintAndSell(
-            VUSDArbitrage.FlashLoanProvider.MORPHO,
             address(usdc),
             flashAmount,
             swapParams,
@@ -259,7 +258,6 @@ contract VUSDArbitrageTest is Test {
         vm.prank(keeper);
         vm.expectRevert(); // Revert — spread too small to cover redeem fee
         arb.buyAndRedeem(
-            VUSDArbitrage.FlashLoanProvider.MORPHO,
             address(usdc),
             flashAmount,
             swapParams,
@@ -288,7 +286,7 @@ contract VUSDArbitrageTest is Test {
         // Simulate via staticcall — should return profit without state changes
         vm.prank(keeper);
         int256 profit = arb.mintAndSell(
-            VUSDArbitrage.FlashLoanProvider.MORPHO, address(usdc), flashAmount, swapParams, 0
+            address(usdc), flashAmount, swapParams, 0
         );
 
         assertGt(profit, 0);
@@ -312,7 +310,7 @@ contract VUSDArbitrageTest is Test {
 
         vm.prank(keeper);
         int256 profit = arb.buyAndRedeem(
-            VUSDArbitrage.FlashLoanProvider.MORPHO, address(usdc), flashAmount, swapParams, 0
+            address(usdc), flashAmount, swapParams, 0
         );
 
         assertGt(profit, 0);
@@ -334,7 +332,7 @@ contract VUSDArbitrageTest is Test {
         address randomUser = makeAddr("random");
         vm.prank(randomUser);
         vm.expectRevert(VUSDArbitrage.NotKeeper.selector);
-        arb.mintAndSell(VUSDArbitrage.FlashLoanProvider.MORPHO, address(usdc), 1000e6, swapParams, 0);
+        arb.mintAndSell(address(usdc), 1000e6, swapParams, 0);
     }
 
     function test_multipleKeepers() public {
@@ -357,7 +355,7 @@ contract VUSDArbitrageTest is Test {
         // keeper2 should be able to execute
         vm.prank(keeper2);
         int256 profit = arb.mintAndSell(
-            VUSDArbitrage.FlashLoanProvider.MORPHO, address(usdc), 10_000e6, swapParams, 0
+            address(usdc), 10_000e6, swapParams, 0
         );
         assertGt(profit, 0);
 
@@ -378,7 +376,7 @@ contract VUSDArbitrageTest is Test {
 
         vm.prank(keeper);
         vm.expectRevert(VUSDArbitrage.NotKeeper.selector);
-        arb.mintAndSell(VUSDArbitrage.FlashLoanProvider.MORPHO, address(usdc), 1000e6, swapParams, 0);
+        arb.mintAndSell(address(usdc), 1000e6, swapParams, 0);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -417,7 +415,7 @@ contract VUSDArbitrageTest is Test {
         uint256 keeperBefore = usdc.balanceOf(keeper);
 
         vm.prank(keeper);
-        arb.mintAndSell(VUSDArbitrage.FlashLoanProvider.MORPHO, address(usdc), flashAmount, swapParams, 0);
+        arb.mintAndSell(address(usdc), flashAmount, swapParams, 0);
 
         assertEq(usdc.balanceOf(keeper) - keeperBefore, 0, "Keeper should get 0 with 0% share");
         assertGt(usdc.balanceOf(treasury), 0, "All profit to treasury");
@@ -512,7 +510,7 @@ contract VUSDArbitrageTest is Test {
         address randomUser = makeAddr("random");
         vm.prank(randomUser);
         int256 profit = arb.mintAndSell(
-            VUSDArbitrage.FlashLoanProvider.MORPHO, address(usdc), 10_000e6, swapParams, 0
+            address(usdc), 10_000e6, swapParams, 0
         );
         assertGt(profit, 0, "Random user should be able to arb when restriction disabled");
 
@@ -539,7 +537,7 @@ contract VUSDArbitrageTest is Test {
         address randomUser = makeAddr("random");
         vm.prank(randomUser);
         vm.expectRevert(VUSDArbitrage.NotKeeper.selector);
-        arb.mintAndSell(VUSDArbitrage.FlashLoanProvider.MORPHO, address(usdc), 1000e6, swapParams, 0);
+        arb.mintAndSell(address(usdc), 1000e6, swapParams, 0);
     }
 
     function test_keeperRestrictionDefault_isEnabled() public view {
@@ -547,10 +545,14 @@ contract VUSDArbitrageTest is Test {
     }
 
     /*//////////////////////////////////////////////////////////////
-                        PROVIDER NOT SET TEST
+                        MORPHO NOT SET TEST
     //////////////////////////////////////////////////////////////*/
 
-    function test_revert_providerNotSet() public {
+    function test_revert_morphoNotSet() public {
+        // Deploy a fresh contract with no provider address configured
+        VUSDArbitrage freshArb = new VUSDArbitrage(address(gateway), keeper, treasury, 1000, owner);
+        gateway.addToInstantRedeemWhitelist(address(freshArb));
+
         VUSDArbitrage.SwapParams memory swapParams = VUSDArbitrage.SwapParams({
             target: address(dex),
             approveTarget: address(dex),
@@ -559,9 +561,8 @@ contract VUSDArbitrageTest is Test {
         });
 
         vm.prank(keeper);
-        vm.expectRevert(VUSDArbitrage.ProviderNotSet.selector);
-        arb.mintAndSell(
-            VUSDArbitrage.FlashLoanProvider.AAVE_V3, // Not set
+        vm.expectRevert(VUSDArbitrage.MorphoNotSet.selector);
+        freshArb.mintAndSell(
             address(usdc),
             1000e6,
             swapParams,

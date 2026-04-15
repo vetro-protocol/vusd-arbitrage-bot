@@ -69,7 +69,7 @@ export class Keeper {
           ...(config.enableCurve ? ["curve"] : []),
           ...(config.enableCurveRouter ? ["curve_router"] : []),
         ].join(" → ") || "none"
-      } → default(1.0)`,
+      } → default(1.0) | Flash loan: Morpho (0bps fee)`,
     );
   }
 
@@ -81,9 +81,7 @@ export class Keeper {
     console.log("  VUSD Arbitrage Keeper");
     console.log("═══════════════════════════════════════════════════");
     console.log(`  Stablecoins : ${this.config.stablecoins.map((s) => s.symbol).join(", ")}`);
-    console.log(
-      `  Providers   : ${this.config.flashLoanProviders.map((p) => `${p.address.slice(0, 10)}… (${p.feeBps}bps)`).join(", ")}`,
-    );
+    console.log(`  Flash loan  : Morpho (0bps fee)`);
     console.log(`  Min profit  : $${this.config.minProfitUsd}`);
     console.log(`  Poll        : ${this.config.pollIntervalMs / 1000}s`);
     console.log(
@@ -115,31 +113,22 @@ export class Keeper {
           continue;
         }
 
-        // 2. Select best provider
-        const provider = this.config.flashLoanProviders[0];
-        if (!provider) {
-          console.warn(`[${ts()}] No flash loan providers configured`);
-          continue;
-        }
-
-        // 3. Determine flash amount based on price deviation
+        // 2. Determine flash amount based on price deviation
         const flashAmount = this.profitCalculator.suggestFlashAmount(priceData, this.config.maxFlashAmount);
         const flashUsd = Number(flashAmount) / 10 ** stablecoin.decimals;
 
-        // 4. Evaluate opportunity at the actual flash amount
-        const estimatedGasCostUsd = 5.0;
-        const evaluation = this.profitCalculator.evaluate(priceData, provider, flashAmount, estimatedGasCostUsd);
+        // 3. Evaluate opportunity at the actual flash amount
+        const estimatedGasCostUsd = this.config.estimatedGasCostUsd;
+        const evaluation = this.profitCalculator.evaluate(priceData, flashAmount, estimatedGasCostUsd);
 
         // Compute raw spread + profit for BOTH directions, pick the better one
-        const flashFeeBps = provider.feeBps;
-
         // MINT_AND_SELL: flash stablecoin → mint VUSD at Gateway → sell VUSD on DEX
-        const mintCost = 1 + priceData.mintFeeBps / 10000 + flashFeeBps / 10000;
+        const mintCost = 1 + priceData.mintFeeBps / 10000;
         const mintSpreadBps = Math.round((priceData.vusdDexPrice - mintCost) * 10000);
         const mintEstProfit = (priceData.vusdDexPrice - mintCost) * flashUsd - estimatedGasCostUsd;
 
         // BUY_AND_REDEEM: flash stablecoin → buy VUSD on DEX → redeem at Gateway
-        const redeemReturn = 1 - priceData.redeemFeeBps / 10000 - flashFeeBps / 10000;
+        const redeemReturn = 1 - priceData.redeemFeeBps / 10000;
         const redeemSpreadBps = Math.round((redeemReturn - priceData.vusdDexBuyPrice) * 10000);
         const redeemEstProfit = (redeemReturn - priceData.vusdDexBuyPrice) * flashUsd - estimatedGasCostUsd;
 
@@ -213,7 +202,6 @@ export class Keeper {
           stablecoin,
           flashAmount: cappedFlashAmount,
           swapParams,
-          provider: provider.provider,
           estimatedProfitUsd: evaluation.estimatedProfitUsd,
           dexPriceVusd: priceData.vusdDexPrice,
           minProfit,

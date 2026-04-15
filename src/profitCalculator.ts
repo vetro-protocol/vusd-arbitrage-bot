@@ -1,5 +1,5 @@
 import {ethers} from "ethers";
-import {ArbDirection, FlashAmountTier, PriceData, FlashLoanProviderConfig} from "./types";
+import {ArbDirection, FlashAmountTier, PriceData} from "./types";
 
 export class ProfitCalculator {
   constructor(
@@ -39,7 +39,6 @@ export class ProfitCalculator {
    */
   evaluate(
     priceData: PriceData,
-    provider: FlashLoanProviderConfig,
     flashAmount: bigint,
     estimatedGasCostUsd: number,
   ): {
@@ -48,7 +47,7 @@ export class ProfitCalculator {
     spreadBps: number;
   } | null {
     const {vusdDexPrice, vusdDexBuyPrice, mintFeeBps, redeemFeeBps, stablecoin} = priceData;
-    const flashFeeBps = provider.feeBps;
+    const flashFeeBps = 0; // Morpho has no flash loan fee
 
     // Convert flash amount to USD-equivalent notional
     const notionalUsd = Number(flashAmount) / 10 ** stablecoin.decimals;

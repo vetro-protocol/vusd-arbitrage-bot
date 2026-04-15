@@ -41,7 +41,7 @@ contract DeployMocks is Script {
         VUSDArbitrage arb = new VUSDArbitrage(address(gateway), keeper, treasury, 1000, msg.sender);
 
         // 8. Set Morpho as flash loan provider
-        arb.setProviderAddress(VUSDArbitrage.FlashLoanProvider.MORPHO, address(morpho));
+        arb.setMorpho(address(morpho));
 
         // 9. Whitelist arb contract for instant redeem
         gateway.addToInstantRedeemWhitelist(address(arb));

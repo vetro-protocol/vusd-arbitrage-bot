@@ -11,7 +11,7 @@ Flashloan-funded arbitrage between [Vetro Gateway](https://vetro.finance) mint/r
 | VUSD > $1 | `mintAndSell` | Flashloan USDC → Mint VUSD via Gateway → Sell VUSD on DEX → Repay loan → Keep profit |
 | VUSD < $1 | `buyAndRedeem` | Flashloan USDC → Buy cheap VUSD on DEX → Redeem via Gateway → Repay loan → Keep profit |
 
-- **Zero capital required** — funded entirely by flashloans (Morpho, Aave V3, Balancer)
+- **Zero capital required** — funded entirely by flashloans (Morpho)
 - **Profit split** — configurable keeper share (BPS), remainder goes to treasury
 - **Off-chain keeper** — monitors prices, simulates via `staticCall`, executes when profitable
 
@@ -20,7 +20,7 @@ Flashloan-funded arbitrage between [Vetro Gateway](https://vetro.finance) mint/r
 ```
 contracts/           Solidity contracts (Foundry)
   VUSDArbitrage.sol  Core arbitrage contract
-  interfaces/        Gateway, Aave, Morpho, Balancer interfaces
+  interfaces/        Gateway, Morpho interfaces
 script/              Foundry deployment scripts
 test/                Solidity unit tests + mainnet fork tests
 test/mocks/          Mock contracts (Gateway, DEX, ERC20, Morpho)

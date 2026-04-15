@@ -8,7 +8,7 @@ import { ProfitCalculator } from "../../src/profitCalculator";
 import { SwapBuilder } from "../../src/swapBuilder";
 import { Executor } from "../../src/executor";
 import { DexQuoter } from "../../src/dexQuoter";
-import { ArbDirection, ArbOpportunity, FlashAmountTier, FlashLoanProvider, StablecoinConfig } from "../../src/types";
+import { ArbDirection, ArbOpportunity, FlashAmountTier, StablecoinConfig } from "../../src/types";
 
 const RPC_URL = "http://127.0.0.1:8545";
 const CHAIN_ID = 31337;
@@ -61,13 +61,6 @@ describe("E2E: Off-chain arbitrage pipeline", () => {
       gatewayAddress: addresses.gateway,
       vusdAddress: addresses.vusd,
       stablecoins: [usdc],
-      flashLoanProviders: [
-        {
-          provider: FlashLoanProvider.MORPHO,
-          address: addresses.morpho,
-          feeBps: 0,
-        },
-      ],
       // All real DEX sources disabled
       enableOneInch: false,
       enableZeroX: false,
@@ -137,7 +130,6 @@ describe("E2E: Off-chain arbitrage pipeline", () => {
     // Step 3: ProfitCalculator evaluates at the actual flash amount
     const evaluation = profitCalculator.evaluate(
       priceData,
-      config.flashLoanProviders[0],
       flashAmount,
       0, // gas cost = 0 on Anvil
     );
@@ -162,7 +154,6 @@ describe("E2E: Off-chain arbitrage pipeline", () => {
       stablecoin: usdc,
       flashAmount,
       swapParams,
-      provider: FlashLoanProvider.MORPHO,
       estimatedProfitUsd: evaluation.estimatedProfitUsd,
       dexPriceVusd: priceData.vusdDexPrice,
       minProfit: 0n,
@@ -262,7 +253,6 @@ describe("E2E: Off-chain arbitrage pipeline", () => {
     const flashAmount = highThresholdCalc.suggestFlashAmount(priceData, config.maxFlashAmount);
     const evaluation = highThresholdCalc.evaluate(
       priceData,
-      config.flashLoanProviders[0],
       flashAmount,
       5.0, // $5 gas cost
     );
