@@ -58,7 +58,7 @@ export class PriceMonitor {
 
   /**
    * Fetch VUSD DEX price using a fallback chain:
-   * Aggregator APIs (Paraswap → 1inch → 0x → LiFi) → Uniswap V3 → Curve → default 1.0
+   * Aggregator APIs (1inch → 0x → LiFi) → Curve Router → default 1.0
    *
    * @param vusdIsInput true = sell direction (VUSD→stablecoin), false = buy direction (stablecoin→VUSD)
    */
@@ -95,36 +95,7 @@ export class PriceMonitor {
       }
     }
 
-    // 2. Try Uniswap V3 on-chain quoter
-    if (this.config.enableUniswapV3) {
-      const uniQuote = await this.dexQuoter.quoteUniswapV3(srcToken, destToken, quoteAmount, destDecimals, srcDecimals);
-      if (uniQuote) {
-        // For buy direction, convert the raw ratio to cost-per-VUSD
-        const price = vusdIsInput ? uniQuote.price : 1000 / (uniQuote.price * 1000);
-        console.log(
-          `  [${stablecoin.symbol}] DEX ${dirLabel} price via uniswap_v3 (fee ${uniQuote.feeTier}): ${price.toFixed(6)}`,
-        );
-        return {...uniQuote, price};
-      }
-    }
-
-    // 3. Try Curve on-chain quoter (direct pool)
-    if (this.config.enableCurve) {
-      const curveQuote = await this.dexQuoter.quoteCurve(
-        stablecoin.address,
-        quoteAmount,
-        destDecimals,
-        srcDecimals,
-        vusdIsInput,
-      );
-      if (curveQuote) {
-        const price = vusdIsInput ? curveQuote.price : 1000 / (curveQuote.price * 1000);
-        console.log(`  [${stablecoin.symbol}] DEX ${dirLabel} price via curve: ${price.toFixed(6)}`);
-        return {...curveQuote, price};
-      }
-    }
-
-    // 4. Try Curve Router (multi-hop via crvUSD)
+    // 2. Try Curve Router (multi-hop via crvUSD)
     if (this.config.enableCurveRouter) {
       const curveRouterQuote = await this.dexQuoter.quoteCurveRouter(
         stablecoin.address,
@@ -140,7 +111,7 @@ export class PriceMonitor {
       }
     }
 
-    // 5. All sources failed
+    // 3. All sources failed
     console.warn(`  [${stablecoin.symbol}] All DEX ${dirLabel} price sources failed, defaulting to 1.0`);
     return {price: 1.0, source: "default"};
   }

@@ -17,7 +17,5 @@ export const CRVUSD_ADDRESS = "0xf939E0A03FB07F59A73314E73794Be0E57ac1b4E";
 // ── Flash loan providers ─────────────────────────────────────────────────────
 export const MORPHO_ADDRESS = "0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb";
 
-// ── DEX routers / quoters ────────────────────────────────────────────────────
-export const UNISWAP_V3_QUOTER = "0x61fFE014bA17989E743c5F6cB21bF9697530B21e";
-export const UNISWAP_V3_ROUTER = "0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45";
+// ── DEX routers ──────────────────────────────────────────────────────────────
 export const CURVE_ROUTER_ADDRESS = "0x45312ea0eFf7E09C83CBE249fa1d7598c4C8cd4e";

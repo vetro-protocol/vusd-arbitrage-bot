@@ -8,7 +8,7 @@ import { ProfitCalculator } from "../../src/profitCalculator";
 import { SwapBuilder } from "../../src/swapBuilder";
 import { Executor } from "../../src/executor";
 import { DexQuoter } from "../../src/dexQuoter";
-import { ArbDirection, ArbOpportunity, FlashAmountTier, StablecoinConfig } from "../../src/types";
+import { ArbDirection, ArbOpportunity, StablecoinConfig } from "../../src/types";
 
 const RPC_URL = "http://127.0.0.1:8545";
 const CHAIN_ID = 31337;
@@ -61,17 +61,16 @@ describe("E2E: Off-chain arbitrage pipeline", () => {
       gatewayAddress: addresses.gateway,
       vusdAddress: addresses.vusd,
       stablecoins: [usdc],
+      curveRouterAddress: ethers.ZeroAddress,
+      crvusdAddress: ethers.ZeroAddress,
+      curveRouterRoutes: {},
       // All real DEX sources disabled
       enableOneInch: false,
       enableZeroX: false,
       enableLifi: false,
-      enableUniswapV3: false,
-      enableCurve: false,
+      enableCurveRouter: false,
       oneInchApiKey: undefined,
       zeroXApiKey: undefined,
-      uniswapV3QuoterAddress: ethers.ZeroAddress,
-      uniswapV3RouterAddress: ethers.ZeroAddress,
-      curvePoolConfigs: {},
       flashAmountTiers: [
         { deviationBps: 500, amountUsd: 500000 },
         { deviationBps: 200, amountUsd: 100000 },
@@ -86,8 +85,8 @@ describe("E2E: Off-chain arbitrage pipeline", () => {
       privateKey: ANVIL_PRIVATE_KEY,
     };
 
-    // 7. DexQuoter (unused but required by constructors)
-    const dexQuoter = new DexQuoter(provider, ethers.ZeroAddress, ethers.ZeroAddress, {});
+    // 7. DexQuoter (curve_router disabled in this test — all quotes via MockDexAdapter)
+    const dexQuoter = new DexQuoter(provider, ethers.ZeroAddress, addresses.vusd, {});
 
     // 8. Wire components with MockDexAdapter as sole aggregator
     priceMonitor = new PriceMonitor(provider, config, [mockDexAdapter], dexQuoter);

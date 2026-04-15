@@ -48,9 +48,6 @@ export class Keeper {
     const aggregators = buildAggregators(config);
     const dexQuoter = new DexQuoter(
       this.provider,
-      config.uniswapV3QuoterAddress,
-      config.uniswapV3RouterAddress,
-      config.curvePoolConfigs,
       config.curveRouterAddress,
       config.vusdAddress,
       config.curveRouterRoutes,
@@ -65,8 +62,6 @@ export class Keeper {
       `[Keeper] Price sources: ${
         [
           ...aggregators.map((a) => a.name),
-          ...(config.enableUniswapV3 ? ["uniswap_v3"] : []),
-          ...(config.enableCurve ? ["curve"] : []),
           ...(config.enableCurveRouter ? ["curve_router"] : []),
         ].join(" → ") || "none"
       } → default(1.0) | Flash loan: Morpho (0bps fee)`,

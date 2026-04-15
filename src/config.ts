@@ -2,7 +2,6 @@ import {ethers} from "ethers";
 import {
   FlashAmountTier,
   StablecoinConfig,
-  CurvePoolConfig,
   CurveRouterRouteConfig,
   CurveRouterHop,
 } from "./types";
@@ -24,11 +23,6 @@ export interface Config {
   oneInchApiKey?: string;
   zeroXApiKey?: string;
 
-  // On-chain quoters
-  uniswapV3QuoterAddress: string;
-  uniswapV3RouterAddress: string;
-  curvePoolConfigs: Record<string, CurvePoolConfig>;
-
   // Curve Router (multi-hop via crvUSD)
   curveRouterAddress: string;
   crvusdAddress: string;
@@ -38,8 +32,6 @@ export interface Config {
   enableOneInch: boolean;
   enableZeroX: boolean;
   enableLifi: boolean;
-  enableUniswapV3: boolean;
-  enableCurve: boolean;
   enableCurveRouter: boolean;
 
   // Flash amount sizing — deviation tiers sorted descending
@@ -82,10 +74,6 @@ export function loadConfig(): Config {
     oneInchApiKey: process.env.ONEINCH_API_KEY,
     zeroXApiKey: process.env.ZEROX_API_KEY,
 
-    uniswapV3QuoterAddress: Constants.UNISWAP_V3_QUOTER,
-    uniswapV3RouterAddress: Constants.UNISWAP_V3_ROUTER,
-    curvePoolConfigs: parseCurvePoolConfigs(),
-
     curveRouterAddress: Constants.CURVE_ROUTER_ADDRESS,
     crvusdAddress: Constants.CRVUSD_ADDRESS,
     curveRouterRoutes: parseCurveRouterRoutes(),
@@ -93,8 +81,6 @@ export function loadConfig(): Config {
     enableOneInch: process.env.ENABLE_ONEINCH !== "false",
     enableZeroX: process.env.ENABLE_ZEROX !== "false",
     enableLifi: process.env.ENABLE_LIFI !== "false",
-    enableUniswapV3: process.env.ENABLE_UNISWAP_V3 !== "false",
-    enableCurve: process.env.ENABLE_CURVE !== "false",
     enableCurveRouter: process.env.ENABLE_CURVE_ROUTER !== "false",
 
     flashAmountTiers: parseFlashAmountTiers(),
@@ -108,36 +94,6 @@ export function loadConfig(): Config {
 
     privateKey: process.env.PRIVATE_KEY!,
   };
-}
-
-/**
- * Parse Curve pool configs from env vars.
- * Format: CURVE_POOL_USDC=poolAddress:vusdIndex:stablecoinIndex
- */
-function parseCurvePoolConfigs(): Record<string, CurvePoolConfig> {
-  const configs: Record<string, CurvePoolConfig> = {};
-
-  const curveUsdc = process.env.CURVE_POOL_USDC;
-  if (curveUsdc) {
-    const [poolAddress, vusdIdx, stableIdx] = curveUsdc.split(":");
-    configs[Constants.USDC_ADDRESS.toLowerCase()] = {
-      poolAddress,
-      vusdIndex: parseInt(vusdIdx),
-      stablecoinIndex: parseInt(stableIdx),
-    };
-  }
-
-  const curveUsdt = process.env.CURVE_POOL_USDT;
-  if (curveUsdt) {
-    const [poolAddress, vusdIdx, stableIdx] = curveUsdt.split(":");
-    configs[Constants.USDT_ADDRESS.toLowerCase()] = {
-      poolAddress,
-      vusdIndex: parseInt(vusdIdx),
-      stablecoinIndex: parseInt(stableIdx),
-    };
-  }
-
-  return configs;
 }
 
 /**

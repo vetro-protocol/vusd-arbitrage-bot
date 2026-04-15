@@ -3,7 +3,6 @@ export enum ArbDirection {
   BUY_AND_REDEEM = 1,
 }
 
-
 export interface SwapParams {
   target: string;
   approveTarget: string;
@@ -17,25 +16,11 @@ export interface StablecoinConfig {
   decimals: number;
 }
 
-export type DexSource = "1inch" | "0x" | "lifi" | "uniswap_v3" | "curve" | "curve_router" | "default";
+export type DexSource = "1inch" | "0x" | "lifi" | "curve_router" | "default";
 
 export interface DexQuoteResult {
   price: number;
   source: DexSource;
-  /** Uniswap V3 fee tier that produced the quote */
-  feeTier?: number;
-  /** Curve pool address */
-  poolAddress?: string;
-  /** Curve VUSD index in pool */
-  vusdIndex?: number;
-  /** Curve stablecoin index in pool */
-  stablecoinIndex?: number;
-}
-
-export interface CurvePoolConfig {
-  poolAddress: string;
-  vusdIndex: number;
-  stablecoinIndex: number;
 }
 
 export interface CurveRouterHop {
