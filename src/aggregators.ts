@@ -165,6 +165,14 @@ export class ZeroXAdapter implements AggregatorAdapter {
 export class LiFiAdapter implements AggregatorAdapter {
   readonly name: DexSource = "lifi";
 
+  constructor(private readonly apiKey?: string) {}
+
+  private get headers(): Record<string, string> {
+    const h: Record<string, string> = {Accept: "application/json"};
+    if (this.apiKey) h["x-lifi-api-key"] = this.apiKey;
+    return h;
+  }
+
   async getQuote(p: QuoteParams): Promise<bigint | null> {
     try {
       const url = new URL("https://li.quest/v1/quote");
@@ -175,9 +183,7 @@ export class LiFiAdapter implements AggregatorAdapter {
       url.searchParams.set("fromAmount", p.amount.toString());
       url.searchParams.set("fromAddress", "0x0000000000000000000000000000000000000001");
 
-      const res = await fetch(url.toString(), {
-        headers: {Accept: "application/json"},
-      });
+      const res = await fetch(url.toString(), {headers: this.headers});
       if (!res.ok) return null;
 
       const data = await res.json();
@@ -198,9 +204,7 @@ export class LiFiAdapter implements AggregatorAdapter {
     url.searchParams.set("toAddress", p.receiver);
     url.searchParams.set("slippage", (p.slippageBps / 10000).toFixed(4));
 
-    const res = await fetch(url.toString(), {
-      headers: {Accept: "application/json"},
-    });
+    const res = await fetch(url.toString(), {headers: this.headers});
     if (!res.ok) {
       throw new Error(`LiFi swap build failed: ${res.status}`);
     }

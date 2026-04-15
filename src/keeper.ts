@@ -28,7 +28,7 @@ function buildAggregators(config: Config): AggregatorAdapter[] {
   }
 
   if (config.enableLifi) {
-    adapters.push(new LiFiAdapter());
+    adapters.push(new LiFiAdapter(config.lifiApiKey));
   }
 
   return adapters;

@@ -22,6 +22,7 @@ export interface Config {
   // DEX aggregator API keys (optional — each enables an aggregator)
   oneInchApiKey?: string;
   zeroXApiKey?: string;
+  lifiApiKey?: string;
 
   // Curve Router (multi-hop via crvUSD)
   curveRouterAddress: string;
@@ -73,6 +74,7 @@ export function loadConfig(): Config {
 
     oneInchApiKey: process.env.ONEINCH_API_KEY,
     zeroXApiKey: process.env.ZEROX_API_KEY,
+    lifiApiKey: process.env.LIFI_API_KEY,
 
     curveRouterAddress: Constants.CURVE_ROUTER_ADDRESS,
     crvusdAddress: Constants.CRVUSD_ADDRESS,
