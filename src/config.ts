@@ -1,14 +1,11 @@
 import {ethers} from "ethers";
 import {
-  FlashLoanProvider,
   FlashAmountTier,
   StablecoinConfig,
-  FlashLoanProviderConfig,
-  CurvePoolConfig,
   CurveRouterRouteConfig,
   CurveRouterHop,
 } from "./types";
-import * as C from "./constants";
+import * as Constants from "./constants";
 
 export interface Config {
   rpcUrl: string;
@@ -22,18 +19,10 @@ export interface Config {
   // Stablecoins to monitor
   stablecoins: StablecoinConfig[];
 
-  // Flash loan providers (sorted by fee ascending — Morpho/Balancer first)
-  flashLoanProviders: FlashLoanProviderConfig[];
-
   // DEX aggregator API keys (optional — each enables an aggregator)
   oneInchApiKey?: string;
   zeroXApiKey?: string;
-  lifiEnabled: boolean;
-
-  // On-chain quoters
-  uniswapV3QuoterAddress: string;
-  uniswapV3RouterAddress: string;
-  curvePoolConfigs: Record<string, CurvePoolConfig>;
+  lifiApiKey?: string;
 
   // Curve Router (multi-hop via crvUSD)
   curveRouterAddress: string;
@@ -44,8 +33,6 @@ export interface Config {
   enableOneInch: boolean;
   enableZeroX: boolean;
   enableLifi: boolean;
-  enableUniswapV3: boolean;
-  enableCurve: boolean;
   enableCurveRouter: boolean;
 
   // Flash amount sizing — deviation tiers sorted descending
@@ -57,6 +44,7 @@ export interface Config {
   pollIntervalMs: number;
   maxGasPriceGwei: number;
   slippageBps: number;
+  estimatedGasCostUsd: number;
 
   // Keeper wallet
   privateKey: string;
@@ -75,34 +63,26 @@ export function loadConfig(): Config {
     rpcUrl: process.env.ETHEREUM_RPC_URL!,
     chainId: 1,
 
-    vusdArbitrageAddress: C.VUSD_ARBITRAGE_ADDRESS,
-    gatewayAddress: C.GATEWAY_ADDRESS,
-    vusdAddress: C.VUSD_ADDRESS,
+    vusdArbitrageAddress: Constants.VUSD_ARBITRAGE_ADDRESS,
+    gatewayAddress: Constants.GATEWAY_ADDRESS,
+    vusdAddress: Constants.VUSD_ADDRESS,
 
     stablecoins: [
-      {address: C.USDC_ADDRESS, symbol: "USDC", decimals: 6},
-      {address: C.USDT_ADDRESS, symbol: "USDT", decimals: 6},
+      {address: Constants.USDC_ADDRESS, symbol: "USDC", decimals: 6},
+      {address: Constants.USDT_ADDRESS, symbol: "USDT", decimals: 6},
     ],
-
-    flashLoanProviders: buildProviderList(),
 
     oneInchApiKey: process.env.ONEINCH_API_KEY,
     zeroXApiKey: process.env.ZEROX_API_KEY,
-    lifiEnabled: process.env.LIFI_ENABLED === "true",
+    lifiApiKey: process.env.LIFI_API_KEY,
 
-    uniswapV3QuoterAddress: C.UNISWAP_V3_QUOTER,
-    uniswapV3RouterAddress: C.UNISWAP_V3_ROUTER,
-    curvePoolConfigs: parseCurvePoolConfigs(),
-
-    curveRouterAddress: C.CURVE_ROUTER_ADDRESS,
-    crvusdAddress: C.CRVUSD_ADDRESS,
+    curveRouterAddress: Constants.CURVE_ROUTER_ADDRESS,
+    crvusdAddress: Constants.CRVUSD_ADDRESS,
     curveRouterRoutes: parseCurveRouterRoutes(),
 
     enableOneInch: process.env.ENABLE_ONEINCH !== "false",
     enableZeroX: process.env.ENABLE_ZEROX !== "false",
     enableLifi: process.env.ENABLE_LIFI !== "false",
-    enableUniswapV3: process.env.ENABLE_UNISWAP_V3 !== "false",
-    enableCurve: process.env.ENABLE_CURVE !== "false",
     enableCurveRouter: process.env.ENABLE_CURVE_ROUTER !== "false",
 
     flashAmountTiers: parseFlashAmountTiers(),
@@ -112,68 +92,10 @@ export function loadConfig(): Config {
     pollIntervalMs: parseInt(process.env.POLL_INTERVAL_MS || "5000"),
     maxGasPriceGwei: parseInt(process.env.MAX_GAS_PRICE_GWEI || "50"),
     slippageBps: parseInt(process.env.SLIPPAGE_BPS || "50"),
+    estimatedGasCostUsd: parseFloat(process.env.ESTIMATED_GAS_COST_USD || "5"),
 
     privateKey: process.env.PRIVATE_KEY!,
   };
-}
-
-function buildProviderList(): FlashLoanProviderConfig[] {
-  const providers: FlashLoanProviderConfig[] = [];
-
-  // Morpho — 0 fee
-  providers.push({
-    provider: FlashLoanProvider.MORPHO,
-    address: C.MORPHO_ADDRESS,
-    feeBps: 0,
-  });
-
-  // Balancer — 0 fee (optional, only if address provided)
-  if (process.env.BALANCER_VAULT) {
-    providers.push({
-      provider: FlashLoanProvider.BALANCER,
-      address: process.env.BALANCER_VAULT,
-      feeBps: 0,
-    });
-  }
-
-  // Aave V3 — ~5 bps fee
-  providers.push({
-    provider: FlashLoanProvider.AAVE_V3,
-    address: C.AAVE_V3_POOL,
-    feeBps: 5,
-  });
-
-  return providers;
-}
-
-/**
- * Parse Curve pool configs from env vars.
- * Format: CURVE_POOL_USDC=poolAddress:vusdIndex:stablecoinIndex
- */
-function parseCurvePoolConfigs(): Record<string, CurvePoolConfig> {
-  const configs: Record<string, CurvePoolConfig> = {};
-
-  const curveUsdc = process.env.CURVE_POOL_USDC;
-  if (curveUsdc) {
-    const [poolAddress, vusdIdx, stableIdx] = curveUsdc.split(":");
-    configs[C.USDC_ADDRESS.toLowerCase()] = {
-      poolAddress,
-      vusdIndex: parseInt(vusdIdx),
-      stablecoinIndex: parseInt(stableIdx),
-    };
-  }
-
-  const curveUsdt = process.env.CURVE_POOL_USDT;
-  if (curveUsdt) {
-    const [poolAddress, vusdIdx, stableIdx] = curveUsdt.split(":");
-    configs[C.USDT_ADDRESS.toLowerCase()] = {
-      poolAddress,
-      vusdIndex: parseInt(vusdIdx),
-      stablecoinIndex: parseInt(stableIdx),
-    };
-  }
-
-  return configs;
 }
 
 /**
@@ -203,18 +125,18 @@ function parseCurveRouterRoutes(): Record<string, CurveRouterRouteConfig> {
   const routeUsdc = process.env.CURVE_ROUTER_ROUTE_USDC;
   if (routeUsdc) {
     const [hop1Raw, hop2Raw] = routeUsdc.split("|");
-    configs[C.USDC_ADDRESS.toLowerCase()] = {
+    configs[Constants.USDC_ADDRESS.toLowerCase()] = {
       hops: [parseHop(hop1Raw), parseHop(hop2Raw)],
-      intermediateToken: C.CRVUSD_ADDRESS,
+      intermediateToken: Constants.CRVUSD_ADDRESS,
     };
   }
 
   const routeUsdt = process.env.CURVE_ROUTER_ROUTE_USDT;
   if (routeUsdt) {
     const [hop1Raw, hop2Raw] = routeUsdt.split("|");
-    configs[C.USDT_ADDRESS.toLowerCase()] = {
+    configs[Constants.USDT_ADDRESS.toLowerCase()] = {
       hops: [parseHop(hop1Raw), parseHop(hop2Raw)],
-      intermediateToken: C.CRVUSD_ADDRESS,
+      intermediateToken: Constants.CRVUSD_ADDRESS,
     };
   }
 
@@ -253,10 +175,7 @@ function parseFlashAmountTiers(): FlashAmountTier[] {
     tiers.sort((a, b) => b.deviationBps - a.deviationBps);
     return tiers;
   } catch (e) {
-    console.warn(
-      "Failed to parse FLASH_AMOUNT_TIERS, using defaults:",
-      e instanceof Error ? e.message : e,
-    );
+    console.warn("Failed to parse FLASH_AMOUNT_TIERS, using defaults:", e instanceof Error ? e.message : e);
     return DEFAULT_FLASH_TIERS;
   }
 }

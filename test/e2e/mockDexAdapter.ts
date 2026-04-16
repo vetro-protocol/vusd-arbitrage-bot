@@ -1,9 +1,5 @@
 import { ethers } from "ethers";
-import {
-  AggregatorAdapter,
-  QuoteParams,
-  SwapBuildParams,
-} from "../../src/aggregators";
+import { AggregatorAdapter, QuoteParams, SwapBuildParams } from "../../src/aggregators";
 import { DexSource, SwapParams } from "../../src/types";
 
 const MOCK_DEX_ABI = [
@@ -76,22 +72,15 @@ export class MockDexAdapter implements AggregatorAdapter {
     const expectedOutput = await this.getQuote(p);
     if (!expectedOutput) throw new Error("MockDexAdapter: quote failed");
 
-    const minAmountOut =
-      (expectedOutput * BigInt(10000 - p.slippageBps)) / 10000n;
+    const minAmountOut = (expectedOutput * BigInt(10000 - p.slippageBps)) / 10000n;
 
     let swapCalldata: string;
     if (srcLower === tokenA) {
       // Sell tokenA -> tokenB: swapAforB(amountA, minAmountB)
-      swapCalldata = iface.encodeFunctionData("swapAforB", [
-        p.amount,
-        minAmountOut,
-      ]);
+      swapCalldata = iface.encodeFunctionData("swapAforB", [p.amount, minAmountOut]);
     } else {
       // Buy tokenA with tokenB: swapBforA(amountB, minAmountA)
-      swapCalldata = iface.encodeFunctionData("swapBforA", [
-        p.amount,
-        minAmountOut,
-      ]);
+      swapCalldata = iface.encodeFunctionData("swapBforA", [p.amount, minAmountOut]);
     }
 
     return {

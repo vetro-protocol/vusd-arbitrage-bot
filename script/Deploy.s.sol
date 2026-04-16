@@ -8,7 +8,6 @@ contract Deploy is Script {
     // ── Mainnet constants ────────────────────────────────────────
     address constant GATEWAY = 0xDaD503f8B9d42bb7af3AfC588358D30163e4416F;
     address constant TREASURY = 0xC8317A10385BE07901A4c9ee3d06E1D83AE378c9;
-    address constant AAVE_V3_POOL = 0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2;
     address constant MORPHO = 0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb;
 
     function run() external {
@@ -26,11 +25,8 @@ contract Deploy is Script {
         console2.log("Treasury:", TREASURY);
         console2.log("Keeper Share BPS:", keeperShareBps);
 
-        // Set flash loan provider addresses
-        arb.setProviderAddress(VUSDArbitrage.FlashLoanProvider.AAVE_V3, AAVE_V3_POOL);
-        console2.log("Aave V3 Pool set:", AAVE_V3_POOL);
-
-        arb.setProviderAddress(VUSDArbitrage.FlashLoanProvider.MORPHO, MORPHO);
+        // Set flash loan provider address
+        arb.setMorpho(MORPHO);
         console2.log("Morpho set:", MORPHO);
 
         vm.stopBroadcast();

@@ -1,15 +1,10 @@
 import {ethers} from "ethers";
 import {Config} from "./config";
-import {
-  ArbDirection,
-  ArbOpportunity,
-  FlashLoanProvider,
-  SwapParams,
-} from "./types";
+import {ArbDirection, ArbOpportunity, SwapParams} from "./types";
 
 const ARB_ABI = [
-  "function mintAndSell(uint8 provider_, address stablecoin_, uint256 flashAmount_, tuple(address target, address approveTarget, bytes swapCalldata, uint256 minAmountOut) swapParams_, uint256 minProfit_) returns (int256)",
-  "function buyAndRedeem(uint8 provider_, address stablecoin_, uint256 flashAmount_, tuple(address target, address approveTarget, bytes swapCalldata, uint256 minAmountOut) swapParams_, uint256 minProfit_) returns (int256)",
+  "function mintAndSell(address stablecoin_, uint256 flashAmount_, tuple(address target, address approveTarget, bytes swapCalldata, uint256 minAmountOut) swapParams_, uint256 minProfit_) returns (int256)",
+  "function buyAndRedeem(address stablecoin_, uint256 flashAmount_, tuple(address target, address approveTarget, bytes swapCalldata, uint256 minAmountOut) swapParams_, uint256 minProfit_) returns (int256)",
 ];
 
 export class Executor {
@@ -21,11 +16,7 @@ export class Executor {
     private config: Config,
   ) {
     this.wallet = new ethers.Wallet(config.privateKey, provider);
-    this.arbContract = new ethers.Contract(
-      config.vusdArbitrageAddress,
-      ARB_ABI,
-      this.wallet,
-    );
+    this.arbContract = new ethers.Contract(config.vusdArbitrageAddress, ARB_ABI, this.wallet);
   }
 
   /**
@@ -39,7 +30,6 @@ export class Executor {
       let profit: bigint;
       if (opportunity.direction === ArbDirection.MINT_AND_SELL) {
         profit = await this.arbContract.mintAndSell.staticCall(
-          opportunity.provider,
           opportunity.stablecoin.address,
           opportunity.flashAmount,
           swapTuple,
@@ -47,7 +37,6 @@ export class Executor {
         );
       } else {
         profit = await this.arbContract.buyAndRedeem.staticCall(
-          opportunity.provider,
           opportunity.stablecoin.address,
           opportunity.flashAmount,
           swapTuple,
@@ -70,19 +59,11 @@ export class Executor {
   /**
    * Execute an arb opportunity on-chain after simulation.
    */
-  async execute(
-    opportunity: ArbOpportunity,
-  ): Promise<ethers.TransactionReceipt | null> {
+  async execute(opportunity: ArbOpportunity): Promise<ethers.TransactionReceipt | null> {
     // Check gas price
     const feeData = await this.wallet.provider!.getFeeData();
-    if (
-      feeData.gasPrice &&
-      feeData.gasPrice >
-        ethers.parseUnits(String(this.config.maxGasPriceGwei), "gwei")
-    ) {
-      console.log(
-        `[Execute] Gas price too high: ${ethers.formatUnits(feeData.gasPrice, "gwei")} gwei`,
-      );
+    if (feeData.gasPrice && feeData.gasPrice > ethers.parseUnits(String(this.config.maxGasPriceGwei), "gwei")) {
+      console.log(`[Execute] Gas price too high: ${ethers.formatUnits(feeData.gasPrice, "gwei")} gwei`);
       return null;
     }
 
@@ -94,18 +75,10 @@ export class Executor {
     }
 
     // Check simulated profit meets minimum
-    const minProfitFormatted = ethers.formatUnits(
-      opportunity.minProfit,
-      opportunity.stablecoin.decimals,
-    );
-    const profitFormatted = ethers.formatUnits(
-      simulatedProfit,
-      opportunity.stablecoin.decimals,
-    );
+    const minProfitFormatted = ethers.formatUnits(opportunity.minProfit, opportunity.stablecoin.decimals);
+    const profitFormatted = ethers.formatUnits(simulatedProfit, opportunity.stablecoin.decimals);
     if (simulatedProfit < opportunity.minProfit) {
-      console.log(
-        `[Execute] Profit ${profitFormatted} < min ${minProfitFormatted}, skipping`,
-      );
+      console.log(`[Execute] Profit ${profitFormatted} < min ${minProfitFormatted}, skipping`);
       return null;
     }
 
@@ -116,7 +89,6 @@ export class Executor {
 
       if (opportunity.direction === ArbDirection.MINT_AND_SELL) {
         tx = await this.arbContract.mintAndSell(
-          opportunity.provider,
           opportunity.stablecoin.address,
           opportunity.flashAmount,
           swapTuple,
@@ -124,7 +96,6 @@ export class Executor {
         );
       } else {
         tx = await this.arbContract.buyAndRedeem(
-          opportunity.provider,
           opportunity.stablecoin.address,
           opportunity.flashAmount,
           swapTuple,
@@ -134,9 +105,7 @@ export class Executor {
 
       console.log(`[Execute] Tx submitted: ${tx.hash}`);
       const receipt = await tx.wait();
-      console.log(
-        `[Execute] Tx confirmed in block ${receipt!.blockNumber}, gas used: ${receipt!.gasUsed}`,
-      );
+      console.log(`[Execute] Tx confirmed in block ${receipt!.blockNumber}, gas used: ${receipt!.gasUsed}`);
       return receipt;
     } catch (error: any) {
       console.error(`[Execute] Failed: ${error.reason || error.message}`);

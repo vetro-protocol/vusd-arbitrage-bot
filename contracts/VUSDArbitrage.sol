@@ -8,9 +8,7 @@ import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/Reentrancy
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
 import {IGateway} from "./interfaces/IGateway.sol";
-import {IPool, IFlashLoanSimpleReceiver} from "./interfaces/aave/IPool.sol";
 import {IMorpho, IMorphoFlashLoanCallback} from "./interfaces/morpho/IMorpho.sol";
-import {IBalancerVault, IFlashLoanRecipient} from "./interfaces/balancer/IBalancerVault.sol";
 
 /// @title VUSDArbitrage
 /// @notice Arbitrage contract between Vetro Gateway (mint/redeem) and DEXes
@@ -18,9 +16,7 @@ import {IBalancerVault, IFlashLoanRecipient} from "./interfaces/balancer/IBalanc
 contract VUSDArbitrage is
     Ownable2Step,
     ReentrancyGuardTransient,
-    IFlashLoanSimpleReceiver,
-    IMorphoFlashLoanCallback,
-    IFlashLoanRecipient
+    IMorphoFlashLoanCallback
 {
     using SafeERC20 for IERC20;
     using EnumerableSet for EnumerableSet.AddressSet;
@@ -28,12 +24,6 @@ contract VUSDArbitrage is
     /*//////////////////////////////////////////////////////////////
                                 TYPES
     //////////////////////////////////////////////////////////////*/
-
-    enum FlashLoanProvider {
-        AAVE_V3,
-        MORPHO,
-        BALANCER
-    }
 
     enum ArbDirection {
         MINT_AND_SELL,
@@ -63,11 +53,10 @@ contract VUSDArbitrage is
     event TreasuryUpdated(address indexed previousTreasury, address indexed newTreasury);
     event KeeperShareUpdated(uint256 previousShareBps, uint256 newShareBps);
     event GatewayUpdated(address indexed previousGateway, address indexed newGateway);
-    event ProviderUpdated(FlashLoanProvider indexed provider, address indexed providerAddress);
+    event MorphoUpdated(address indexed previousMorpho, address indexed newMorpho);
     event ArbitrageExecuted(
         ArbDirection indexed direction,
         address indexed stablecoin,
-        FlashLoanProvider indexed provider,
         uint256 flashAmount,
         int256 profit,
         uint256 keeperProfit,
@@ -82,7 +71,7 @@ contract VUSDArbitrage is
 
     error NotKeeper();
     error AddressIsZero();
-    error ProviderNotSet();
+    error MorphoNotSet();
     error InvalidSender();
     error InvalidInitiator();
     error TokenMismatch();
@@ -99,6 +88,7 @@ contract VUSDArbitrage is
     IGateway public gateway;
     IERC20 public vusd;
     address public treasury; // Receives profit after keeper share
+    address public morpho;   // Morpho flash loan pool
 
     /// @notice Keeper share of profit in BPS (e.g., 1000 = 10%). Can be 0.
     uint256 public keeperShareBps;
@@ -107,12 +97,9 @@ contract VUSDArbitrage is
     bool public keeperRestrictionEnabled;
 
     EnumerableSet.AddressSet private _keepers;
-    mapping(FlashLoanProvider => address) public providerAddress;
 
     /// @dev Set in callback, read/returned from entry point, zeroed after use
     int256 private _lastProfit;
-    /// @dev Guard to avoid anyone to initiate Balancer flash loan
-    bool private _balancerFlashloanInitiated; 
 
     /*//////////////////////////////////////////////////////////////
                               MODIFIERS
@@ -156,14 +143,12 @@ contract VUSDArbitrage is
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Mint VUSD via Gateway and sell on DEX (when VUSD > $1 on DEX)
-    /// @param provider_ Flash loan provider to use
     /// @param stablecoin_ Stablecoin address (USDC or USDT)
     /// @param flashAmount_ Amount of stablecoin to flash loan
     /// @param swapParams_ DEX swap parameters for selling VUSD
     /// @param minProfit_ Minimum total profit required (reverts if not met). Use 0 to skip check.
     /// @return profit Net profit in stablecoin (negative if unprofitable)
     function mintAndSell(
-        FlashLoanProvider provider_,
         address stablecoin_,
         uint256 flashAmount_,
         SwapParams calldata swapParams_,
@@ -173,7 +158,7 @@ contract VUSDArbitrage is
 
         bytes memory data = abi.encode(ArbDirection.MINT_AND_SELL, stablecoin_, swapParams_);
 
-        _initiateFlashLoan(provider_, stablecoin_, flashAmount_, data);
+        _initiateFlashLoan(stablecoin_, flashAmount_, data);
 
         profit = _lastProfit;
         _lastProfit = 0;
@@ -184,20 +169,16 @@ contract VUSDArbitrage is
 
         (uint256 keeperAmount, uint256 treasuryAmount) = _distributeProfit(stablecoin_);
 
-        emit ArbitrageExecuted(
-            ArbDirection.MINT_AND_SELL, stablecoin_, provider_, flashAmount_, profit, keeperAmount, treasuryAmount
-        );
+        emit ArbitrageExecuted(ArbDirection.MINT_AND_SELL, stablecoin_, flashAmount_, profit, keeperAmount, treasuryAmount);
     }
 
     /// @notice Buy VUSD on DEX and redeem via Gateway (when VUSD < $1 on DEX)
-    /// @param provider_ Flash loan provider to use
     /// @param stablecoin_ Stablecoin address (USDC or USDT)
     /// @param flashAmount_ Amount of stablecoin to flash loan
     /// @param swapParams_ DEX swap parameters for buying VUSD
     /// @param minProfit_ Minimum total profit required (reverts if not met). Use 0 to skip check.
     /// @return profit Net profit in stablecoin (negative if unprofitable)
     function buyAndRedeem(
-        FlashLoanProvider provider_,
         address stablecoin_,
         uint256 flashAmount_,
         SwapParams calldata swapParams_,
@@ -207,7 +188,7 @@ contract VUSDArbitrage is
 
         bytes memory data = abi.encode(ArbDirection.BUY_AND_REDEEM, stablecoin_, swapParams_);
 
-        _initiateFlashLoan(provider_, stablecoin_, flashAmount_, data);
+        _initiateFlashLoan(stablecoin_, flashAmount_, data);
 
         profit = _lastProfit;
         _lastProfit = 0;
@@ -218,9 +199,7 @@ contract VUSDArbitrage is
 
         (uint256 keeperAmount, uint256 treasuryAmount) = _distributeProfit(stablecoin_);
 
-        emit ArbitrageExecuted(
-            ArbDirection.BUY_AND_REDEEM, stablecoin_, provider_, flashAmount_, profit, keeperAmount, treasuryAmount
-        );
+        emit ArbitrageExecuted(ArbDirection.BUY_AND_REDEEM, stablecoin_, flashAmount_, profit, keeperAmount, treasuryAmount);
     }
 
     /// @notice Rescue any tokens stuck in the contract to treasury. Callable by keepers.
@@ -237,28 +216,8 @@ contract VUSDArbitrage is
                        FLASHLOAN CALLBACKS
     //////////////////////////////////////////////////////////////*/
 
-    /// @inheritdoc IFlashLoanSimpleReceiver
-    function executeOperation(
-        address asset_,
-        uint256 amount_,
-        uint256 premium_,
-        address initiator_,
-        bytes calldata params_
-    ) external returns (bool) {
-        if (msg.sender != providerAddress[FlashLoanProvider.AAVE_V3]) revert InvalidSender();
-        if (initiator_ != address(this)) revert InvalidInitiator();
-
-        _onFlashLoanReceived(asset_, amount_, premium_, params_);
-
-        // Aave auto-pulls: approve Pool for amount + premium
-        IERC20(asset_).forceApprove(msg.sender, amount_ + premium_);
-
-        return true;
-    }
-
     /// @inheritdoc IMorphoFlashLoanCallback
     function onMorphoFlashLoan(uint256 assets_, bytes calldata data_) external {
-        address morpho = providerAddress[FlashLoanProvider.MORPHO];
         if (msg.sender != morpho) revert InvalidSender();
 
         // Morpho callback doesn't pass token address — decode from our data
@@ -268,27 +227,6 @@ contract VUSDArbitrage is
 
         // Morpho pulls funds back via safeTransferFrom — approve instead of transfer
         IERC20(stablecoin_).forceApprove(morpho, assets_);
-    }
-
-    /// @inheritdoc IFlashLoanRecipient
-    function receiveFlashLoan(
-        IERC20[] memory tokens_,
-        uint256[] memory amounts_,
-        uint256[] memory feeAmounts_,
-        bytes memory userData_
-    ) external {
-        address vault = providerAddress[FlashLoanProvider.BALANCER];
-        if (msg.sender != vault) revert InvalidSender();
-        if (!_balancerFlashloanInitiated) revert InvalidInitiator();
-
-        address token = address(tokens_[0]);
-        uint256 amount = amounts_[0];
-        uint256 fee = feeAmounts_[0];
-
-        _onFlashLoanReceived(token, amount, fee, userData_);
-
-        // Balancer: manual transfer back
-        IERC20(token).safeTransfer(vault, amount + fee);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -332,10 +270,10 @@ contract VUSDArbitrage is
         vusd = IERC20(address(IGateway(gateway_).PEGGED_TOKEN()));
     }
 
-    function setProviderAddress(FlashLoanProvider provider_, address addr_) external onlyOwner {
-        if (addr_ == address(0)) revert AddressIsZero();
-        emit ProviderUpdated(provider_, addr_);
-        providerAddress[provider_] = addr_;
+    function setMorpho(address morpho_) external onlyOwner {
+        if (morpho_ == address(0)) revert AddressIsZero();
+        emit MorphoUpdated(morpho, morpho_);
+        morpho = morpho_;
     }
 
     function emergencyWithdraw(address token_, address to_, uint256 amount_) external onlyOwner {
@@ -364,31 +302,10 @@ contract VUSDArbitrage is
                          INTERNAL FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    /// @dev Route flashloan to the correct provider
-    function _initiateFlashLoan(
-        FlashLoanProvider provider_,
-        address token_,
-        uint256 amount_,
-        bytes memory data_
-    ) internal {
-        address lender = providerAddress[provider_];
-        if (lender == address(0)) revert ProviderNotSet();
-
-
-        if (provider_ == FlashLoanProvider.AAVE_V3) {
-            IPool(lender).flashLoanSimple(address(this), token_, amount_, data_, 0);
-        } else if (provider_ == FlashLoanProvider.MORPHO) {
-            IMorpho(lender).flashLoan(token_, amount_, data_);
-        } else if (provider_ == FlashLoanProvider.BALANCER) {
-            IERC20[] memory tokens = new IERC20[](1);
-            tokens[0] = IERC20(token_);
-            uint256[] memory amounts = new uint256[](1);
-            amounts[0] = amount_;
-            _balancerFlashloanInitiated = true;
-            IBalancerVault(lender).flashLoan(address(this), tokens, amounts, data_);
-            _balancerFlashloanInitiated = false;
-        }
-
+    /// @dev Initiate a Morpho flashloan
+    function _initiateFlashLoan(address token_, uint256 amount_, bytes memory data_) internal {
+        if (morpho == address(0)) revert MorphoNotSet();
+        IMorpho(morpho).flashLoan(token_, amount_, data_);
     }
 
     /// @dev Shared handler called by all flashloan callbacks

@@ -1,13 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
 import { ethers } from "ethers";
-import {
-  startAnvil,
-  stopAnvil,
-  deployMocks,
-  DeployedAddresses,
-  ANVIL_PRIVATE_KEY,
-  ANVIL_ADMIN_KEY,
-} from "./anvil";
+import { startAnvil, stopAnvil, deployMocks, DeployedAddresses, ANVIL_PRIVATE_KEY, ANVIL_ADMIN_KEY } from "./anvil";
 import { MockDexAdapter } from "./mockDexAdapter";
 import { Config } from "../../src/config";
 import { PriceMonitor } from "../../src/priceMonitor";
@@ -15,21 +8,12 @@ import { ProfitCalculator } from "../../src/profitCalculator";
 import { SwapBuilder } from "../../src/swapBuilder";
 import { Executor } from "../../src/executor";
 import { DexQuoter } from "../../src/dexQuoter";
-import {
-  ArbDirection,
-  ArbOpportunity,
-  FlashAmountTier,
-  FlashLoanProvider,
-  StablecoinConfig,
-} from "../../src/types";
+import { ArbDirection, ArbOpportunity, StablecoinConfig } from "../../src/types";
 
 const RPC_URL = "http://127.0.0.1:8545";
 const CHAIN_ID = 31337;
 
-const MOCK_DEX_ABI = [
-  "function setPrice(uint256 priceAinB_) external",
-  "function priceAinB() view returns (uint256)",
-];
+const MOCK_DEX_ABI = ["function setPrice(uint256 priceAinB_) external", "function priceAinB() view returns (uint256)"];
 
 const ERC20_ABI = ["function balanceOf(address) view returns (uint256)"];
 
@@ -77,30 +61,21 @@ describe("E2E: Off-chain arbitrage pipeline", () => {
       gatewayAddress: addresses.gateway,
       vusdAddress: addresses.vusd,
       stablecoins: [usdc],
-      flashLoanProviders: [
-        {
-          provider: FlashLoanProvider.MORPHO,
-          address: addresses.morpho,
-          feeBps: 0,
-        },
-      ],
+      curveRouterAddress: ethers.ZeroAddress,
+      crvusdAddress: ethers.ZeroAddress,
+      curveRouterRoutes: {},
       // All real DEX sources disabled
       enableOneInch: false,
       enableZeroX: false,
       enableLifi: false,
-      enableUniswapV3: false,
-      enableCurve: false,
+      enableCurveRouter: false,
       oneInchApiKey: undefined,
       zeroXApiKey: undefined,
-      lifiEnabled: false,
-      uniswapV3QuoterAddress: ethers.ZeroAddress,
-      uniswapV3RouterAddress: ethers.ZeroAddress,
-      curvePoolConfigs: {},
       flashAmountTiers: [
-        {deviationBps: 500, amountUsd: 500000},
-        {deviationBps: 200, amountUsd: 100000},
-        {deviationBps: 50, amountUsd: 50000},
-        {deviationBps: 0, amountUsd: 10000},
+        { deviationBps: 500, amountUsd: 500000 },
+        { deviationBps: 200, amountUsd: 100000 },
+        { deviationBps: 50, amountUsd: 50000 },
+        { deviationBps: 0, amountUsd: 10000 },
       ],
       minProfitUsd: 1.0,
       maxFlashAmount: BigInt("1000000000000"),
@@ -110,13 +85,8 @@ describe("E2E: Off-chain arbitrage pipeline", () => {
       privateKey: ANVIL_PRIVATE_KEY,
     };
 
-    // 7. DexQuoter (unused but required by constructors)
-    const dexQuoter = new DexQuoter(
-      provider,
-      ethers.ZeroAddress,
-      ethers.ZeroAddress,
-      {}
-    );
+    // 7. DexQuoter (curve_router disabled in this test — all quotes via MockDexAdapter)
+    const dexQuoter = new DexQuoter(provider, ethers.ZeroAddress, addresses.vusd, {});
 
     // 8. Wire components with MockDexAdapter as sole aggregator
     priceMonitor = new PriceMonitor(provider, config, [mockDexAdapter], dexQuoter);
@@ -154,17 +124,13 @@ describe("E2E: Off-chain arbitrage pipeline", () => {
     const priceData = await priceMonitor.getPriceData(usdc);
 
     // Step 2: Flash amount sizing (before evaluate so profit is realistic)
-    const flashAmount = profitCalculator.suggestFlashAmount(
-      priceData,
-      config.maxFlashAmount
-    );
+    const flashAmount = profitCalculator.suggestFlashAmount(priceData, config.maxFlashAmount);
 
     // Step 3: ProfitCalculator evaluates at the actual flash amount
     const evaluation = profitCalculator.evaluate(
       priceData,
-      config.flashLoanProviders[0],
       flashAmount,
-      0 // gas cost = 0 on Anvil
+      0, // gas cost = 0 on Anvil
     );
 
     if (!evaluation) {
@@ -175,19 +141,10 @@ describe("E2E: Off-chain arbitrage pipeline", () => {
     let swapParams;
     if (evaluation.direction === ArbDirection.MINT_AND_SELL) {
       const vusdEstimate = priceData.gatewayMintOutput;
-      const scaledVusd =
-        (vusdEstimate * flashAmount) / ethers.parseUnits("10000", usdc.decimals);
-      swapParams = await swapBuilder.buildSellVusdSwap(
-        scaledVusd,
-        usdc,
-        priceData.dexQuote
-      );
+      const scaledVusd = (vusdEstimate * flashAmount) / ethers.parseUnits("10000", usdc.decimals);
+      swapParams = await swapBuilder.buildSellVusdSwap(scaledVusd, usdc, priceData.dexQuote);
     } else {
-      swapParams = await swapBuilder.buildBuyVusdSwap(
-        flashAmount,
-        usdc,
-        priceData.dexBuyQuote
-      );
+      swapParams = await swapBuilder.buildBuyVusdSwap(flashAmount, usdc, priceData.dexBuyQuote);
     }
 
     // Step 5: Build opportunity
@@ -196,7 +153,6 @@ describe("E2E: Off-chain arbitrage pipeline", () => {
       stablecoin: usdc,
       flashAmount,
       swapParams,
-      provider: FlashLoanProvider.MORPHO,
       estimatedProfitUsd: evaluation.estimatedProfitUsd,
       dexPriceVusd: priceData.vusdDexPrice,
       minProfit: 0n,
@@ -212,9 +168,7 @@ describe("E2E: Off-chain arbitrage pipeline", () => {
   // Scenario 1: MINT_AND_SELL — VUSD trades above peg at $1.03
   // ===========================================================================
   it("should detect and execute MINT_AND_SELL when VUSD is above peg", async () => {
-    const { priceData, evaluation, receipt } = await runPipeline(
-      ethers.parseUnits("1.03", 18)
-    );
+    const { priceData, evaluation, receipt } = await runPipeline(ethers.parseUnits("1.03", 18));
 
     // Verify price detection
     expect(priceData.vusdDexPrice).toBeCloseTo(1.03, 2);
@@ -240,7 +194,7 @@ describe("E2E: Off-chain arbitrage pipeline", () => {
 
     console.log(
       `  MINT_AND_SELL profit: keeper=${ethers.formatUnits(keeperBal, 6)} USDC, ` +
-        `treasury=${ethers.formatUnits(treasuryBal, 6)} USDC`
+        `treasury=${ethers.formatUnits(treasuryBal, 6)} USDC`,
     );
   });
 
@@ -248,9 +202,7 @@ describe("E2E: Off-chain arbitrage pipeline", () => {
   // Scenario 2: BUY_AND_REDEEM — VUSD trades below peg at $0.95
   // ===========================================================================
   it("should detect and execute BUY_AND_REDEEM when VUSD is below peg", async () => {
-    const { priceData, evaluation, receipt } = await runPipeline(
-      ethers.parseUnits("0.95", 18)
-    );
+    const { priceData, evaluation, receipt } = await runPipeline(ethers.parseUnits("0.95", 18));
 
     // Verify price detection
     expect(priceData.vusdDexPrice).toBeCloseTo(0.95, 2);
@@ -272,7 +224,7 @@ describe("E2E: Off-chain arbitrage pipeline", () => {
 
     console.log(
       `  BUY_AND_REDEEM profit: keeper=${ethers.formatUnits(keeperBal, 6)} USDC, ` +
-        `treasury=${ethers.formatUnits(treasuryBal, 6)} USDC`
+        `treasury=${ethers.formatUnits(treasuryBal, 6)} USDC`,
     );
   });
 
@@ -280,9 +232,7 @@ describe("E2E: Off-chain arbitrage pipeline", () => {
   // Scenario 3: No opportunity — VUSD at peg ($1.00)
   // ===========================================================================
   it("should skip when VUSD is at peg (no opportunity)", async () => {
-    const { priceData, evaluation, receipt } = await runPipeline(
-      ethers.parseUnits("1.0", 18)
-    );
+    const { priceData, evaluation, receipt } = await runPipeline(ethers.parseUnits("1.0", 18));
 
     expect(priceData.vusdDexPrice).toBeCloseTo(1.0, 4);
     expect(evaluation).toBeNull();
@@ -299,15 +249,11 @@ describe("E2E: Off-chain arbitrage pipeline", () => {
     await dexContract.setPrice(ethers.parseUnits("1.001", 18)); // 0.1% spread
 
     const priceData = await priceMonitor.getPriceData(usdc);
-    const flashAmount = highThresholdCalc.suggestFlashAmount(
-      priceData,
-      config.maxFlashAmount
-    );
+    const flashAmount = highThresholdCalc.suggestFlashAmount(priceData, config.maxFlashAmount);
     const evaluation = highThresholdCalc.evaluate(
       priceData,
-      config.flashLoanProviders[0],
       flashAmount,
-      5.0 // $5 gas cost
+      5.0, // $5 gas cost
     );
 
     // Spread exists but profit doesn't meet $100 threshold
