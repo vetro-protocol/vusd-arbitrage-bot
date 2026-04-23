@@ -1,10 +1,5 @@
 import {ethers} from "ethers";
-import {
-  FlashAmountTier,
-  StablecoinConfig,
-  CurveRouterRouteConfig,
-  CurveRouterHop,
-} from "./types";
+import {FlashAmountTier, StablecoinConfig, CurveRouterRouteConfig, CurveRouterHop} from "./types";
 import * as Constants from "./constants";
 
 export interface Config {
@@ -63,7 +58,7 @@ export function loadConfig(): Config {
     rpcUrl: process.env.ETHEREUM_RPC_URL!,
     chainId: 1,
 
-    vusdArbitrageAddress: Constants.VUSD_ARBITRAGE_ADDRESS,
+    vusdArbitrageAddress: process.env.VUSD_ARBITRAGE_ADDRESS || Constants.VUSD_ARBITRAGE_ADDRESS,
     gatewayAddress: Constants.GATEWAY_ADDRESS,
     vusdAddress: Constants.VUSD_ADDRESS,
 
