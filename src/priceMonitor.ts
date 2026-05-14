@@ -57,8 +57,12 @@ export class PriceMonitor {
   }
 
   /**
-   * Fetch VUSD DEX price using a fallback chain:
-   * Aggregator APIs (1inch → 0x → LiFi) → Curve Router → default 1.0
+   * Fetch VUSD DEX price by querying all enabled sources in parallel and
+   * picking the best price. Sources that fail or return no route are ignored.
+   *
+   * Best price:
+   *   sell direction (VUSD→stablecoin): highest stablecoin-per-VUSD (more output)
+   *   buy direction  (stablecoin→VUSD): lowest  stablecoin-per-VUSD (less cost)
    *
    * @param vusdIsInput true = sell direction (VUSD→stablecoin), false = buy direction (stablecoin→VUSD)
    */
@@ -73,8 +77,7 @@ export class PriceMonitor {
     const destToken = vusdIsInput ? stablecoin.address : this.config.vusdAddress;
     const quoteAmount = ethers.parseUnits("1000", srcDecimals);
 
-    // 1. Try each aggregator adapter in order
-    for (const adapter of this.aggregators) {
+    const aggregatorQuotes = this.aggregators.map(async (adapter): Promise<DexQuoteResult | null> => {
       try {
         const destAmount = await adapter.getQuote({
           srcToken,
@@ -84,36 +87,51 @@ export class PriceMonitor {
           destDecimals,
           chainId: this.config.chainId,
         });
-
-        if (destAmount !== null && destAmount > 0n) {
-          const price = this.computeVusdPrice(quoteAmount, destAmount, srcDecimals, destDecimals, vusdIsInput);
-          console.log(`  [${stablecoin.symbol}] DEX ${dirLabel} price via ${adapter.name}: ${price.toFixed(6)}`);
-          return {price, source: adapter.name};
-        }
-      } catch (error) {
-        // Adapter failed, try next
+        if (destAmount === null || destAmount <= 0n) return null;
+        const price = this.computeVusdPrice(quoteAmount, destAmount, srcDecimals, destDecimals, vusdIsInput);
+        return {price, source: adapter.name};
+      } catch {
+        return null;
       }
+    });
+
+    const curveRouterQuote = (async (): Promise<DexQuoteResult | null> => {
+      if (!this.config.enableCurveRouter) return null;
+      try {
+        const q = await this.dexQuoter.quoteCurveRouter(
+          stablecoin.address,
+          quoteAmount,
+          destDecimals,
+          srcDecimals,
+          vusdIsInput,
+        );
+        if (!q) return null;
+        const price = vusdIsInput ? q.price : 1000 / (q.price * 1000);
+        return {...q, price};
+      } catch {
+        return null;
+      }
+    })();
+
+    const results = await Promise.all([...aggregatorQuotes, curveRouterQuote]);
+    const candidates = results.filter((q): q is DexQuoteResult => q !== null);
+
+    if (candidates.length === 0) {
+      console.warn(`  [${stablecoin.symbol}] All DEX ${dirLabel} price sources failed, defaulting to 1.0`);
+      return {price: 1.0, source: "default"};
     }
 
-    // 2. Try Curve Router (multi-hop via crvUSD)
-    if (this.config.enableCurveRouter) {
-      const curveRouterQuote = await this.dexQuoter.quoteCurveRouter(
-        stablecoin.address,
-        quoteAmount,
-        destDecimals,
-        srcDecimals,
-        vusdIsInput,
-      );
-      if (curveRouterQuote) {
-        const price = vusdIsInput ? curveRouterQuote.price : 1000 / (curveRouterQuote.price * 1000);
-        console.log(`  [${stablecoin.symbol}] DEX ${dirLabel} price via curve_router: ${price.toFixed(6)}`);
-        return {...curveRouterQuote, price};
-      }
-    }
+    // sell: pick highest; buy: pick lowest
+    const best = candidates.reduce((a, b) =>
+      vusdIsInput ? (a.price > b.price ? a : b) : (a.price < b.price ? a : b),
+    );
 
-    // 3. All sources failed
-    console.warn(`  [${stablecoin.symbol}] All DEX ${dirLabel} price sources failed, defaulting to 1.0`);
-    return {price: 1.0, source: "default"};
+    const summary = candidates.map((c) => `${c.source}=${c.price.toFixed(6)}`).join(", ");
+    console.log(
+      `  [${stablecoin.symbol}] DEX ${dirLabel} quotes: ${summary} → using ${best.source} (${best.price.toFixed(6)})`,
+    );
+
+    return best;
   }
 
   /**

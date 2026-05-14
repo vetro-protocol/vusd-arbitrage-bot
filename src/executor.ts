@@ -9,14 +9,25 @@ const ARB_ABI = [
 
 export class Executor {
   private arbContract: ethers.Contract;
-  private wallet: ethers.Wallet;
+  private wallet: ethers.Wallet | null;
+  private provider: ethers.Provider;
 
   constructor(
     provider: ethers.Provider,
     private config: Config,
   ) {
-    this.wallet = new ethers.Wallet(config.privateKey, provider);
-    this.arbContract = new ethers.Contract(config.vusdArbitrageAddress, ARB_ABI, this.wallet);
+    this.provider = provider;
+    this.wallet = config.privateKey ? new ethers.Wallet(config.privateKey, provider) : null;
+    this.arbContract = new ethers.Contract(
+      config.vusdArbitrageAddress,
+      ARB_ABI,
+      this.wallet ?? provider,
+    );
+  }
+
+  /** True when no PRIVATE_KEY is set — bot polls and logs but skips tx submission. */
+  get isDryRun(): boolean {
+    return this.wallet === null;
   }
 
   /**
@@ -60,8 +71,13 @@ export class Executor {
    * Execute an arb opportunity on-chain after simulation.
    */
   async execute(opportunity: ArbOpportunity): Promise<ethers.TransactionReceipt | null> {
+    if (!this.wallet) {
+      console.log("[Dry-run] PRIVATE_KEY not set — skipping tx submission");
+      return null;
+    }
+
     // Check gas price
-    const feeData = await this.wallet.provider!.getFeeData();
+    const feeData = await this.provider.getFeeData();
     if (feeData.gasPrice && feeData.gasPrice > ethers.parseUnits(String(this.config.maxGasPriceGwei), "gwei")) {
       console.log(`[Execute] Gas price too high: ${ethers.formatUnits(feeData.gasPrice, "gwei")} gwei`);
       return null;

@@ -41,17 +41,13 @@ export interface Config {
   slippageBps: number;
   estimatedGasCostUsd: number;
 
-  // Keeper wallet
-  privateKey: string;
+  // Keeper wallet — optional. When unset, bot runs in dry mode (polls + logs, never submits txs).
+  privateKey?: string;
 }
 
 export function loadConfig(): Config {
-  const requiredEnvVars = ["ETHEREUM_RPC_URL", "PRIVATE_KEY"];
-
-  for (const envVar of requiredEnvVars) {
-    if (!process.env[envVar]) {
-      throw new Error(`Missing required environment variable: ${envVar}`);
-    }
+  if (!process.env.ETHEREUM_RPC_URL) {
+    throw new Error("Missing required environment variable: ETHEREUM_RPC_URL");
   }
 
   return {
@@ -89,7 +85,7 @@ export function loadConfig(): Config {
     slippageBps: parseInt(process.env.SLIPPAGE_BPS || "50"),
     estimatedGasCostUsd: parseFloat(process.env.ESTIMATED_GAS_COST_USD || "5"),
 
-    privateKey: process.env.PRIVATE_KEY!,
+    privateKey: process.env.PRIVATE_KEY,
   };
 }
 
