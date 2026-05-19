@@ -1,6 +1,7 @@
 import {ethers} from "ethers";
 import {Config} from "./config";
-import {DexQuoteResult, SwapParams, StablecoinConfig} from "./types";
+import {UnderlyingToken} from "./products";
+import {DexQuoteResult, SwapParams} from "./types";
 import {AggregatorAdapter} from "./aggregators";
 import {DexQuoter} from "./dexQuoter";
 
@@ -17,42 +18,40 @@ export class SwapBuilder {
   }
 
   /**
-   * Build SwapParams for selling VUSD for stablecoin (MINT_AND_SELL direction).
-   * Routes through the same DEX that provided the price quote.
+   * Build SwapParams for selling pegged token for underlying (MINT_AND_SELL).
    */
-  async buildSellVusdSwap(
-    vusdAmount: bigint,
-    stablecoin: StablecoinConfig,
+  async buildSellPeggedSwap(
+    peggedAmount: bigint,
+    underlying: UnderlyingToken,
     dexQuote: DexQuoteResult,
   ): Promise<SwapParams> {
     return this.buildSwap(
-      this.config.vusdAddress,
-      18,
-      stablecoin.address,
-      stablecoin.decimals,
-      vusdAmount,
+      this.config.peggedTokenAddress,
+      this.config.product.peggedToken.decimals,
+      underlying.address,
+      underlying.decimals,
+      peggedAmount,
       dexQuote,
-      true, // vusdIsInput
+      true, // peggedIsInput
     );
   }
 
   /**
-   * Build SwapParams for buying VUSD with stablecoin (BUY_AND_REDEEM direction).
-   * Routes through the same DEX that provided the price quote.
+   * Build SwapParams for buying pegged token with underlying (BUY_AND_REDEEM).
    */
-  async buildBuyVusdSwap(
-    stablecoinAmount: bigint,
-    stablecoin: StablecoinConfig,
+  async buildBuyPeggedSwap(
+    underlyingAmount: bigint,
+    underlying: UnderlyingToken,
     dexQuote: DexQuoteResult,
   ): Promise<SwapParams> {
     return this.buildSwap(
-      stablecoin.address,
-      stablecoin.decimals,
-      this.config.vusdAddress,
-      18,
-      stablecoinAmount,
+      underlying.address,
+      underlying.decimals,
+      this.config.peggedTokenAddress,
+      this.config.product.peggedToken.decimals,
+      underlyingAmount,
       dexQuote,
-      false, // stablecoin is input
+      false, // underlying is input
     );
   }
 
@@ -63,11 +62,11 @@ export class SwapBuilder {
     destDecimals: number,
     amount: bigint,
     dexQuote: DexQuoteResult,
-    vusdIsInput: boolean,
+    peggedIsInput: boolean,
   ): Promise<SwapParams> {
     const {source} = dexQuote;
 
-    // Aggregator sources — use the adapter's buildSwap
+    // Aggregator sources — delegate to the adapter
     const adapter = this.adapterMap.get(source);
     if (adapter) {
       return adapter.buildSwap({
@@ -77,22 +76,21 @@ export class SwapBuilder {
         srcDecimals,
         destDecimals,
         chainId: this.config.chainId,
-        receiver: this.config.vusdArbitrageAddress,
+        receiver: this.config.arbitrageAddress,
         slippageBps: this.config.slippageBps,
       });
     }
 
-    // Curve Router — multi-hop via crvUSD, build calldata locally
+    // Curve Router — build calldata locally with a fresh quote
     if (source === "curve_router") {
-      const stablecoinAddress = vusdIsInput ? destToken : srcToken;
+      const underlyingAddress = peggedIsInput ? destToken : srcToken;
 
-      // Get a fresh quote for the exact swap amount
       const freshQuote = await this.dexQuoter.quoteCurveRouter(
-        stablecoinAddress,
+        underlyingAddress,
         amount,
         destDecimals,
         srcDecimals,
-        vusdIsInput,
+        peggedIsInput,
       );
       if (!freshQuote) {
         throw new Error("Curve Router fresh quote failed");
@@ -103,7 +101,7 @@ export class SwapBuilder {
       );
       const minAmountOut = (expectedOut * BigInt(10000 - this.config.slippageBps)) / 10000n;
 
-      return this.dexQuoter.buildCurveRouterSwap(stablecoinAddress, amount, minAmountOut, vusdIsInput);
+      return this.dexQuoter.buildCurveRouterSwap(underlyingAddress, amount, minAmountOut, peggedIsInput);
     }
 
     throw new Error(`Cannot build swap for source "${source}" — no DEX route available`);

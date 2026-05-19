@@ -4,14 +4,14 @@ pragma solidity 0.8.30;
 import {Test, console2} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import {VUSDArbitrage} from "../contracts/VUSDArbitrage.sol";
+import {VetroArbitrage} from "../contracts/VetroArbitrage.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockGateway} from "./mocks/MockGateway.sol";
 import {MockDex} from "./mocks/MockDex.sol";
 import {MockMorpho} from "./mocks/MockMorpho.sol";
 
-contract VUSDArbitrageTest is Test {
-    VUSDArbitrage public arb;
+contract VetroArbitrageTest is Test {
+    VetroArbitrage public arb;
     MockERC20 public usdc;
     MockERC20 public vusd;
     MockGateway public gateway;
@@ -51,7 +51,7 @@ contract VUSDArbitrageTest is Test {
         usdc.mint(address(morpho), MORPHO_LIQUIDITY);
 
         // Deploy arbitrage contract (10% keeper share)
-        arb = new VUSDArbitrage(address(gateway), keeper, treasury, 1000, owner);
+        arb = new VetroArbitrage(address(gateway), keeper, treasury, 1000, owner);
 
         // Set Morpho as flash loan provider
         vm.prank(owner);
@@ -78,7 +78,7 @@ contract VUSDArbitrageTest is Test {
         bytes memory swapCalldata =
             abi.encodeWithSelector(MockDex.swapAforB.selector, 100_000e18, 0);
 
-        VUSDArbitrage.SwapParams memory swapParams = VUSDArbitrage.SwapParams({
+        VetroArbitrage.SwapParams memory swapParams = VetroArbitrage.SwapParams({
             target: address(dex),
             approveTarget: address(dex),
             swapCalldata: swapCalldata,
@@ -122,7 +122,7 @@ contract VUSDArbitrageTest is Test {
         bytes memory swapCalldata =
             abi.encodeWithSelector(MockDex.swapAforB.selector, 50_000e18, 0);
 
-        VUSDArbitrage.SwapParams memory swapParams = VUSDArbitrage.SwapParams({
+        VetroArbitrage.SwapParams memory swapParams = VetroArbitrage.SwapParams({
             target: address(dex),
             approveTarget: address(dex),
             swapCalldata: swapCalldata,
@@ -157,7 +157,7 @@ contract VUSDArbitrageTest is Test {
         bytes memory swapCalldata =
             abi.encodeWithSelector(MockDex.swapBforA.selector, 100_000e6, 0);
 
-        VUSDArbitrage.SwapParams memory swapParams = VUSDArbitrage.SwapParams({
+        VetroArbitrage.SwapParams memory swapParams = VetroArbitrage.SwapParams({
             target: address(dex),
             approveTarget: address(dex),
             swapCalldata: swapCalldata,
@@ -196,7 +196,7 @@ contract VUSDArbitrageTest is Test {
         bytes memory swapCalldata =
             abi.encodeWithSelector(MockDex.swapBforA.selector, 200_000e6, 0);
 
-        VUSDArbitrage.SwapParams memory swapParams = VUSDArbitrage.SwapParams({
+        VetroArbitrage.SwapParams memory swapParams = VetroArbitrage.SwapParams({
             target: address(dex),
             approveTarget: address(dex),
             swapCalldata: swapCalldata,
@@ -224,7 +224,7 @@ contract VUSDArbitrageTest is Test {
         bytes memory swapCalldata =
             abi.encodeWithSelector(MockDex.swapAforB.selector, 10_000e18, 0);
 
-        VUSDArbitrage.SwapParams memory swapParams = VUSDArbitrage.SwapParams({
+        VetroArbitrage.SwapParams memory swapParams = VetroArbitrage.SwapParams({
             target: address(dex),
             approveTarget: address(dex),
             swapCalldata: swapCalldata,
@@ -248,7 +248,7 @@ contract VUSDArbitrageTest is Test {
         bytes memory swapCalldata =
             abi.encodeWithSelector(MockDex.swapBforA.selector, 10_000e6, 0);
 
-        VUSDArbitrage.SwapParams memory swapParams = VUSDArbitrage.SwapParams({
+        VetroArbitrage.SwapParams memory swapParams = VetroArbitrage.SwapParams({
             target: address(dex),
             approveTarget: address(dex),
             swapCalldata: swapCalldata,
@@ -276,7 +276,7 @@ contract VUSDArbitrageTest is Test {
         bytes memory swapCalldata =
             abi.encodeWithSelector(MockDex.swapAforB.selector, 50_000e18, 0);
 
-        VUSDArbitrage.SwapParams memory swapParams = VUSDArbitrage.SwapParams({
+        VetroArbitrage.SwapParams memory swapParams = VetroArbitrage.SwapParams({
             target: address(dex),
             approveTarget: address(dex),
             swapCalldata: swapCalldata,
@@ -301,7 +301,7 @@ contract VUSDArbitrageTest is Test {
         bytes memory swapCalldata =
             abi.encodeWithSelector(MockDex.swapBforA.selector, 100_000e6, 0);
 
-        VUSDArbitrage.SwapParams memory swapParams = VUSDArbitrage.SwapParams({
+        VetroArbitrage.SwapParams memory swapParams = VetroArbitrage.SwapParams({
             target: address(dex),
             approveTarget: address(dex),
             swapCalldata: swapCalldata,
@@ -322,7 +322,7 @@ contract VUSDArbitrageTest is Test {
     //////////////////////////////////////////////////////////////*/
 
     function test_revert_notKeeper() public {
-        VUSDArbitrage.SwapParams memory swapParams = VUSDArbitrage.SwapParams({
+        VetroArbitrage.SwapParams memory swapParams = VetroArbitrage.SwapParams({
             target: address(dex),
             approveTarget: address(dex),
             swapCalldata: "",
@@ -331,7 +331,7 @@ contract VUSDArbitrageTest is Test {
 
         address randomUser = makeAddr("random");
         vm.prank(randomUser);
-        vm.expectRevert(VUSDArbitrage.NotKeeper.selector);
+        vm.expectRevert(VetroArbitrage.NotKeeper.selector);
         arb.mintAndSell(address(usdc), 1000e6, swapParams, 0);
     }
 
@@ -345,7 +345,7 @@ contract VUSDArbitrageTest is Test {
         bytes memory swapCalldata =
             abi.encodeWithSelector(MockDex.swapAforB.selector, 10_000e18, 0);
 
-        VUSDArbitrage.SwapParams memory swapParams = VUSDArbitrage.SwapParams({
+        VetroArbitrage.SwapParams memory swapParams = VetroArbitrage.SwapParams({
             target: address(dex),
             approveTarget: address(dex),
             swapCalldata: swapCalldata,
@@ -367,7 +367,7 @@ contract VUSDArbitrageTest is Test {
         vm.prank(owner);
         arb.removeKeeper(keeper);
 
-        VUSDArbitrage.SwapParams memory swapParams = VUSDArbitrage.SwapParams({
+        VetroArbitrage.SwapParams memory swapParams = VetroArbitrage.SwapParams({
             target: address(dex),
             approveTarget: address(dex),
             swapCalldata: "",
@@ -375,7 +375,7 @@ contract VUSDArbitrageTest is Test {
         });
 
         vm.prank(keeper);
-        vm.expectRevert(VUSDArbitrage.NotKeeper.selector);
+        vm.expectRevert(VetroArbitrage.NotKeeper.selector);
         arb.mintAndSell(address(usdc), 1000e6, swapParams, 0);
     }
 
@@ -405,7 +405,7 @@ contract VUSDArbitrageTest is Test {
         bytes memory swapCalldata =
             abi.encodeWithSelector(MockDex.swapAforB.selector, 100_000e18, 0);
 
-        VUSDArbitrage.SwapParams memory swapParams = VUSDArbitrage.SwapParams({
+        VetroArbitrage.SwapParams memory swapParams = VetroArbitrage.SwapParams({
             target: address(dex),
             approveTarget: address(dex),
             swapCalldata: swapCalldata,
@@ -499,7 +499,7 @@ contract VUSDArbitrageTest is Test {
         bytes memory swapCalldata =
             abi.encodeWithSelector(MockDex.swapAforB.selector, 10_000e18, 0);
 
-        VUSDArbitrage.SwapParams memory swapParams = VUSDArbitrage.SwapParams({
+        VetroArbitrage.SwapParams memory swapParams = VetroArbitrage.SwapParams({
             target: address(dex),
             approveTarget: address(dex),
             swapCalldata: swapCalldata,
@@ -527,7 +527,7 @@ contract VUSDArbitrageTest is Test {
 
         assertTrue(arb.keeperRestrictionEnabled());
 
-        VUSDArbitrage.SwapParams memory swapParams = VUSDArbitrage.SwapParams({
+        VetroArbitrage.SwapParams memory swapParams = VetroArbitrage.SwapParams({
             target: address(dex),
             approveTarget: address(dex),
             swapCalldata: "",
@@ -536,7 +536,7 @@ contract VUSDArbitrageTest is Test {
 
         address randomUser = makeAddr("random");
         vm.prank(randomUser);
-        vm.expectRevert(VUSDArbitrage.NotKeeper.selector);
+        vm.expectRevert(VetroArbitrage.NotKeeper.selector);
         arb.mintAndSell(address(usdc), 1000e6, swapParams, 0);
     }
 
@@ -550,10 +550,10 @@ contract VUSDArbitrageTest is Test {
 
     function test_revert_morphoNotSet() public {
         // Deploy a fresh contract with no provider address configured
-        VUSDArbitrage freshArb = new VUSDArbitrage(address(gateway), keeper, treasury, 1000, owner);
+        VetroArbitrage freshArb = new VetroArbitrage(address(gateway), keeper, treasury, 1000, owner);
         gateway.addToInstantRedeemWhitelist(address(freshArb));
 
-        VUSDArbitrage.SwapParams memory swapParams = VUSDArbitrage.SwapParams({
+        VetroArbitrage.SwapParams memory swapParams = VetroArbitrage.SwapParams({
             target: address(dex),
             approveTarget: address(dex),
             swapCalldata: "",
@@ -561,7 +561,7 @@ contract VUSDArbitrageTest is Test {
         });
 
         vm.prank(keeper);
-        vm.expectRevert(VUSDArbitrage.MorphoNotSet.selector);
+        vm.expectRevert(VetroArbitrage.MorphoNotSet.selector);
         freshArb.mintAndSell(
             address(usdc),
             1000e6,

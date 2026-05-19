@@ -2,14 +2,14 @@
 pragma solidity 0.8.30;
 
 import {Script, console2} from "forge-std/Script.sol";
-import {VUSDArbitrage} from "../contracts/VUSDArbitrage.sol";
+import {VetroArbitrage} from "../contracts/VetroArbitrage.sol";
 import {MockERC20} from "../test/mocks/MockERC20.sol";
 import {MockGateway} from "../test/mocks/MockGateway.sol";
 import {MockDex} from "../test/mocks/MockDex.sol";
 import {MockMorpho} from "../test/mocks/MockMorpho.sol";
 
 /// @title DeployMocks — Deploy full mock environment to Anvil for E2E testing
-/// @dev Replicates the same setup as test/VUSDArbitrage.t.sol::setUp()
+/// @dev Replicates the same setup as test/VetroArbitrage.t.sol::setUp()
 contract DeployMocks is Script {
     function run() external {
         vm.startBroadcast();
@@ -35,10 +35,10 @@ contract DeployMocks is Script {
         MockMorpho morpho = new MockMorpho();
         usdc.mint(address(morpho), 10_000_000e6);
 
-        // 7. Deploy VUSDArbitrage
+        // 7. Deploy VetroArbitrage
         address keeper = msg.sender;
         address treasury = address(0x70997970C51812dc3A010C7d01b50e0d17dc79C8);
-        VUSDArbitrage arb = new VUSDArbitrage(address(gateway), keeper, treasury, 1000, msg.sender);
+        VetroArbitrage arb = new VetroArbitrage(address(gateway), keeper, treasury, 1000, msg.sender);
 
         // 8. Set Morpho as flash loan provider
         arb.setMorpho(address(morpho));

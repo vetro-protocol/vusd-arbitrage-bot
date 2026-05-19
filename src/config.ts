@@ -1,48 +1,49 @@
 import {ethers} from "ethers";
-import {FlashAmountTier, StablecoinConfig, CurveRouterRouteConfig, CurveRouterHop} from "./types";
+import {FlashAmountTier, Product, getProduct} from "./products";
 import * as Constants from "./constants";
 
 export interface Config {
+  // ── Global infra ──────────────────────────────────────────────────────
   rpcUrl: string;
   chainId: number;
+  /** Morpho flash loan pool */
+  morphoAddress: string;
+  /** Curve Router NG v1.2 */
+  curveRouterAddress: string;
 
-  // Contract addresses
-  vusdArbitrageAddress: string;
-  gatewayAddress: string;
-  vusdAddress: string;
+  // ── Active product ────────────────────────────────────────────────────
+  product: Product;
+  /** Convenience: pegged-token address (= product.peggedToken.address) */
+  peggedTokenAddress: string;
+  /** Arbitrage contract — defaults from product, overridable via env */
+  arbitrageAddress: string;
 
-  // Stablecoins to monitor
-  stablecoins: StablecoinConfig[];
-
-  // DEX aggregator API keys (optional — each enables an aggregator)
+  // ── Aggregator API keys (optional, each toggles its source on) ────────
   oneInchApiKey?: string;
   zeroXApiKey?: string;
   lifiApiKey?: string;
 
-  // Curve Router (multi-hop via crvUSD)
-  curveRouterAddress: string;
-  crvusdAddress: string;
-  curveRouterRoutes: Record<string, CurveRouterRouteConfig>;
-
-  // Per-source enable/disable flags
+  // ── Per-source enable flags (all default true) ────────────────────────
   enableOneInch: boolean;
   enableZeroX: boolean;
   enableLifi: boolean;
   enableCurveRouter: boolean;
 
-  // Flash amount sizing — deviation tiers sorted descending
-  flashAmountTiers: FlashAmountTier[];
-
-  // Thresholds
-  minProfitUsd: number;
+  // ── Tunings — defaults sourced from the product, overridable via env ──
+  /** Minimum profit (underlying base units) to execute an arb */
+  minProfitBase: number;
+  /** Off-chain gas-cost assumption (underlying base units) for profit estimate */
+  estimatedGasCostBase: number;
+  /** Hard cap on flash loan amount (raw bigint, underlying base units) */
   maxFlashAmount: bigint;
+  /** Flash-loan tier table (sorted descending by deviationBps) */
+  flashAmountTiers: FlashAmountTier[];
+  /** Price poll interval (ms) */
   pollIntervalMs: number;
+  /** Skip execution if gas price > this (gwei) */
   maxGasPriceGwei: number;
+  /** DEX swap slippage tolerance (bps) */
   slippageBps: number;
-  estimatedGasCostUsd: number;
-
-  // Keeper wallet — optional. When unset, bot runs in dry mode (polls + logs, never submits txs).
-  privateKey?: string;
 }
 
 export function loadConfig(): Config {
@@ -50,123 +51,77 @@ export function loadConfig(): Config {
     throw new Error("Missing required environment variable: ETHEREUM_RPC_URL");
   }
 
+  const product = getProduct(process.env.PRODUCT);
+
+  const arbitrageAddress = process.env.ARBITRAGE_ADDRESS || product.arbitrageAddress;
+  if (!arbitrageAddress || arbitrageAddress === ethers.ZeroAddress) {
+    throw new Error(
+      `No arbitrage contract address configured for product ${product.name}. ` +
+        `Set ARBITRAGE_ADDRESS in .env (override) or update src/products.ts after deploying.`,
+    );
+  }
+
+  const maxFlashAmount = parseFlashCap(product);
+
   return {
     rpcUrl: process.env.ETHEREUM_RPC_URL!,
     chainId: 1,
+    morphoAddress: Constants.MORPHO_ADDRESS,
+    curveRouterAddress: Constants.CURVE_ROUTER_ADDRESS,
 
-    vusdArbitrageAddress: process.env.VUSD_ARBITRAGE_ADDRESS || Constants.VUSD_ARBITRAGE_ADDRESS,
-    gatewayAddress: Constants.GATEWAY_ADDRESS,
-    vusdAddress: Constants.VUSD_ADDRESS,
-
-    stablecoins: [
-      {address: Constants.USDC_ADDRESS, symbol: "USDC", decimals: 6},
-      {address: Constants.USDT_ADDRESS, symbol: "USDT", decimals: 6},
-    ],
+    product,
+    peggedTokenAddress: product.peggedToken.address,
+    arbitrageAddress,
 
     oneInchApiKey: process.env.ONEINCH_API_KEY,
     zeroXApiKey: process.env.ZEROX_API_KEY,
     lifiApiKey: process.env.LIFI_API_KEY,
-
-    curveRouterAddress: Constants.CURVE_ROUTER_ADDRESS,
-    crvusdAddress: Constants.CRVUSD_ADDRESS,
-    curveRouterRoutes: parseCurveRouterRoutes(),
 
     enableOneInch: process.env.ENABLE_ONEINCH !== "false",
     enableZeroX: process.env.ENABLE_ZEROX !== "false",
     enableLifi: process.env.ENABLE_LIFI !== "false",
     enableCurveRouter: process.env.ENABLE_CURVE_ROUTER !== "false",
 
-    flashAmountTiers: parseFlashAmountTiers(),
-
-    minProfitUsd: parseFloat(process.env.MIN_PROFIT_USD || "5"),
-    maxFlashAmount: BigInt(process.env.MAX_FLASH_AMOUNT || "1000000000000"), // 1M USDC default
+    minProfitBase: parseFloat(process.env.MIN_PROFIT_BASE ?? String(product.defaultMinProfitBase)),
+    estimatedGasCostBase: parseFloat(
+      process.env.ESTIMATED_GAS_COST_BASE ?? String(product.defaultEstimatedGasCostBase),
+    ),
+    maxFlashAmount,
+    flashAmountTiers: parseFlashAmountTiers(product),
     pollIntervalMs: parseInt(process.env.POLL_INTERVAL_MS || "5000"),
     maxGasPriceGwei: parseInt(process.env.MAX_GAS_PRICE_GWEI || "50"),
     slippageBps: parseInt(process.env.SLIPPAGE_BPS || "50"),
-    estimatedGasCostUsd: parseFloat(process.env.ESTIMATED_GAS_COST_USD || "5"),
-
-    privateKey: process.env.PRIVATE_KEY,
   };
 }
 
 /**
- * Parse a single hop from "pool:i:j:swapType:poolType:nCoins" format.
+ * Compute MAX_FLASH_AMOUNT as a bigint in underlying base units.
+ * MAX_FLASH_AMOUNT env var, if set, is denominated in the underlying's
+ * human-readable units (e.g. "2000" = 2000 USDC, "0.5" = 0.5 WBTC).
  */
-function parseHop(raw: string): CurveRouterHop {
-  const [pool, i, j, swapType, poolType, nCoins] = raw.split(":");
-  return {
-    pool: ethers.getAddress(pool),
-    i: parseInt(i),
-    j: parseInt(j),
-    swapType: parseInt(swapType),
-    poolType: parseInt(poolType),
-    nCoins: parseInt(nCoins),
-  };
+function parseFlashCap(product: Product): bigint {
+  const human = process.env.MAX_FLASH_AMOUNT ?? String(product.defaultMaxFlashAmount);
+  // Use the first underlying's decimals for parsing. All underlyings of a
+  // product are assumed to share decimals (6 for USD-stables, 8 for BTC-stables).
+  const decimals = product.underlyingTokens[0]?.decimals ?? 18;
+  return ethers.parseUnits(human, decimals);
 }
 
 /**
- * Parse Curve Router multi-hop route configs from env vars.
- * Format: CURVE_ROUTER_ROUTE_USDC=hop1|hop2
- * Each hop: pool:i:j:swapType:poolType:nCoins
- * Hops define BUY direction (stablecoin → crvUSD → VUSD).
+ * Parse FLASH_AMOUNT_TIERS env var (JSON array of [deviationBps, amount] pairs)
+ * or fall back to the product's defaults. Amounts are in underlying human units.
  */
-function parseCurveRouterRoutes(): Record<string, CurveRouterRouteConfig> {
-  const configs: Record<string, CurveRouterRouteConfig> = {};
-
-  const routeUsdc = process.env.CURVE_ROUTER_ROUTE_USDC;
-  if (routeUsdc) {
-    const [hop1Raw, hop2Raw] = routeUsdc.split("|");
-    configs[Constants.USDC_ADDRESS.toLowerCase()] = {
-      hops: [parseHop(hop1Raw), parseHop(hop2Raw)],
-      intermediateToken: Constants.CRVUSD_ADDRESS,
-    };
-  }
-
-  const routeUsdt = process.env.CURVE_ROUTER_ROUTE_USDT;
-  if (routeUsdt) {
-    const [hop1Raw, hop2Raw] = routeUsdt.split("|");
-    configs[Constants.USDT_ADDRESS.toLowerCase()] = {
-      hops: [parseHop(hop1Raw), parseHop(hop2Raw)],
-      intermediateToken: Constants.CRVUSD_ADDRESS,
-    };
-  }
-
-  return configs;
-}
-
-/**
- * Default flash amount tiers — conservative for low-liquidity pools.
- * Format: deviation threshold (bps) → flash amount (USD).
- * First match wins (sorted descending by deviationBps).
- */
-const DEFAULT_FLASH_TIERS: FlashAmountTier[] = [
-  {deviationBps: 500, amountUsd: 2000}, // > 5%  → $2,000
-  {deviationBps: 200, amountUsd: 1000}, // > 2%  → $1,000
-  {deviationBps: 50, amountUsd: 500}, // > 0.5% → $500
-  {deviationBps: 0, amountUsd: 500}, // default  → $500
-];
-
-/**
- * Parse flash amount tiers from FLASH_AMOUNT_TIERS env var.
- * Format: JSON array of [deviationBps, amountUsd] pairs.
- * Example: [[500,2000],[200,1000],[50,500],[0,500]]
- * If not set, uses DEFAULT_FLASH_TIERS.
- */
-function parseFlashAmountTiers(): FlashAmountTier[] {
+function parseFlashAmountTiers(product: Product): FlashAmountTier[] {
   const raw = process.env.FLASH_AMOUNT_TIERS;
-  if (!raw) return DEFAULT_FLASH_TIERS;
+  if (!raw) return product.defaultFlashAmountTiers;
 
   try {
     const parsed: [number, number][] = JSON.parse(raw);
-    const tiers = parsed.map(([deviationBps, amountUsd]) => ({
-      deviationBps,
-      amountUsd,
-    }));
-    // Sort descending by deviationBps so first match wins
+    const tiers = parsed.map(([deviationBps, amount]) => ({deviationBps, amount}));
     tiers.sort((a, b) => b.deviationBps - a.deviationBps);
     return tiers;
   } catch (e) {
-    console.warn("Failed to parse FLASH_AMOUNT_TIERS, using defaults:", e instanceof Error ? e.message : e);
-    return DEFAULT_FLASH_TIERS;
+    console.warn("Failed to parse FLASH_AMOUNT_TIERS, using product defaults:", e instanceof Error ? e.message : e);
+    return product.defaultFlashAmountTiers;
   }
 }

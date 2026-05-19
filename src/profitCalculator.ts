@@ -1,88 +1,87 @@
 import {ethers} from "ethers";
-import {ArbDirection, FlashAmountTier, PriceData} from "./types";
+import {ArbDirection, PriceData} from "./types";
+import {FlashAmountTier} from "./products";
 
+/**
+ * Evaluates whether an arb opportunity is actionable and sizes the flash loan.
+ *
+ * All "profit" / "amount" values here are denominated in the **underlying base
+ * asset** of the product:
+ *   - VUSD product → USDC / USDT (≈ USD)
+ *   - vetBTC product → WBTC / cbBTC / hemiBTC (≈ BTC)
+ *
+ * The peg is assumed to be 1:1 between pegged token and underlying. Both VUSD
+ * (1 ≈ 1 USDC) and vetBTC (1 ≈ 1 WBTC) satisfy this.
+ */
 export class ProfitCalculator {
   constructor(
-    private minProfitUsd: number,
+    private minProfitBase: number,
     private flashAmountTiers: FlashAmountTier[],
   ) {}
 
   /**
-   * Determine flash loan size based on price deviation and configurable tiers.
-   * Tiers are sorted descending by deviationBps — first match wins.
-   * Result is capped by maxAmount.
+   * Determine flash loan size from price deviation.
+   * Tiers are sorted descending — first match wins. Result capped at maxAmount.
    */
   suggestFlashAmount(priceData: PriceData, maxAmount: bigint): bigint {
-    // Use the larger deviation of sell vs buy price for tier selection
-    const sellDev = Math.abs(priceData.vusdDexPrice - 1.0) * 10000;
-    const buyDev = Math.abs(priceData.vusdDexBuyPrice - 1.0) * 10000;
+    const sellDev = Math.abs(priceData.peggedDexSellPrice - 1.0) * 10000;
+    const buyDev = Math.abs(priceData.peggedDexBuyPrice - 1.0) * 10000;
     const deviationBps = Math.max(sellDev, buyDev);
-    const decimals = priceData.stablecoin.decimals;
+    const decimals = priceData.underlying.decimals;
 
-    // Find the first tier whose threshold is met
-    let amountUsd = this.flashAmountTiers[this.flashAmountTiers.length - 1]?.amountUsd ?? 500;
+    let amount = this.flashAmountTiers[this.flashAmountTiers.length - 1]?.amount ?? 0;
     for (const tier of this.flashAmountTiers) {
       if (deviationBps >= tier.deviationBps) {
-        amountUsd = tier.amountUsd;
+        amount = tier.amount;
         break;
       }
     }
 
-    const amount = ethers.parseUnits(String(amountUsd), decimals);
-    return amount < maxAmount ? amount : maxAmount;
+    const amountBig = ethers.parseUnits(String(amount), decimals);
+    return amountBig < maxAmount ? amountBig : maxAmount;
   }
 
   /**
    * Evaluate whether an arb opportunity exists at the given flash amount.
-   * Computes profit = (spread * notional) - gasCost.
+   * profit = (spread × notional) − gasCost, all in base-asset units.
    * Returns null if no opportunity or profit below threshold.
    */
   evaluate(
     priceData: PriceData,
     flashAmount: bigint,
-    estimatedGasCostUsd: number,
+    estimatedGasCostBase: number,
   ): {
     direction: ArbDirection;
-    estimatedProfitUsd: number;
+    estimatedProfitBase: number;
     spreadBps: number;
   } | null {
-    const {vusdDexPrice, vusdDexBuyPrice, mintFeeBps, redeemFeeBps, stablecoin} = priceData;
-    const flashFeeBps = 0; // Morpho has no flash loan fee
+    const {peggedDexSellPrice, peggedDexBuyPrice, mintFeeBps, redeemFeeBps, underlying} = priceData;
+    const flashFeeBps = 0; // Morpho has no fee
 
-    // Convert flash amount to USD-equivalent notional
-    const notionalUsd = Number(flashAmount) / 10 ** stablecoin.decimals;
+    // Convert flash amount to base-asset notional
+    const notionalBase = Number(flashAmount) / 10 ** underlying.decimals;
 
-    // VUSD sell price > $1 on DEX → mint and sell
-    // Use sell price: how much stablecoin we get per VUSD sold
-    if (vusdDexPrice > 1.0) {
+    // pegged sell price > 1.0 on DEX → mint and sell
+    if (peggedDexSellPrice > 1.0) {
       const gatewayMintCost = 1 + mintFeeBps / 10000 + flashFeeBps / 10000;
-      const spreadPerDollar = vusdDexPrice - gatewayMintCost;
-      const spreadBps = Math.round(spreadPerDollar * 10000);
-      const estimatedProfitUsd = spreadPerDollar * notionalUsd - estimatedGasCostUsd;
+      const spreadPerUnit = peggedDexSellPrice - gatewayMintCost;
+      const spreadBps = Math.round(spreadPerUnit * 10000);
+      const estimatedProfitBase = spreadPerUnit * notionalBase - estimatedGasCostBase;
 
-      if (estimatedProfitUsd >= this.minProfitUsd && spreadBps > 0) {
-        return {
-          direction: ArbDirection.MINT_AND_SELL,
-          estimatedProfitUsd,
-          spreadBps,
-        };
+      if (estimatedProfitBase >= this.minProfitBase && spreadBps > 0) {
+        return {direction: ArbDirection.MINT_AND_SELL, estimatedProfitBase, spreadBps};
       }
     }
 
-    // VUSD buy price < $1 on DEX → buy and redeem
-    // Use buy price: how much stablecoin it costs to buy 1 VUSD
-    if (vusdDexBuyPrice < 1.0) {
+    // pegged buy price < 1.0 on DEX → buy and redeem
+    if (peggedDexBuyPrice < 1.0) {
       const gatewayRedeemReturn = 1 - redeemFeeBps / 10000 - flashFeeBps / 10000;
-      const spreadPerDollar = gatewayRedeemReturn - vusdDexBuyPrice;
-      const spreadBps = Math.round(spreadPerDollar * 10000);
-      const estimatedProfitUsd = spreadPerDollar * notionalUsd - estimatedGasCostUsd;
+      const spreadPerUnit = gatewayRedeemReturn - peggedDexBuyPrice;
+      const spreadBps = Math.round(spreadPerUnit * 10000);
+      const estimatedProfitBase = spreadPerUnit * notionalBase - estimatedGasCostBase;
 
-      if (estimatedProfitUsd >= this.minProfitUsd && spreadBps > 0) {
-        return {
-          direction: ArbDirection.BUY_AND_REDEEM,
-          estimatedProfitUsd,
-          spreadBps,
-        };
+      if (estimatedProfitBase >= this.minProfitBase && spreadBps > 0) {
+        return {direction: ArbDirection.BUY_AND_REDEEM, estimatedProfitBase, spreadBps};
       }
     }
 

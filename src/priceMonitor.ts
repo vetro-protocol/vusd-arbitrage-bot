@@ -1,6 +1,7 @@
 import {ethers} from "ethers";
 import {Config} from "./config";
-import {DexQuoteResult, PriceData, StablecoinConfig} from "./types";
+import {UnderlyingToken} from "./products";
+import {DexQuoteResult, PriceData} from "./types";
 import {AggregatorAdapter} from "./aggregators";
 import {DexQuoter} from "./dexQuoter";
 
@@ -22,60 +23,61 @@ export class PriceMonitor {
     private aggregators: AggregatorAdapter[],
     private dexQuoter: DexQuoter,
   ) {
-    this.gateway = new ethers.Contract(config.gatewayAddress, GATEWAY_ABI, provider);
+    this.gateway = new ethers.Contract(config.product.gatewayAddress, GATEWAY_ABI, provider);
   }
 
-  async getPriceData(stablecoin: StablecoinConfig): Promise<PriceData> {
-    const testAmount = ethers.parseUnits("10000", stablecoin.decimals);
+  async getPriceData(underlying: UnderlyingToken): Promise<PriceData> {
+    const testAmount = ethers.parseUnits("10000", underlying.decimals);
 
     const [gatewayMintOutput, mintFeeBps, redeemFeeBps, dexSellQuote, dexBuyQuote] = await Promise.all([
-      this.gateway.previewDeposit(stablecoin.address, testAmount) as Promise<bigint>,
-      this.gateway.mintFee(stablecoin.address) as Promise<bigint>,
-      this.gateway.redeemFee(stablecoin.address) as Promise<bigint>,
-      this.fetchDexQuote(stablecoin, true),
-      this.fetchDexQuote(stablecoin, false),
+      this.gateway.previewDeposit(underlying.address, testAmount) as Promise<bigint>,
+      this.gateway.mintFee(underlying.address) as Promise<bigint>,
+      this.gateway.redeemFee(underlying.address) as Promise<bigint>,
+      this.fetchDexQuote(underlying, true),
+      this.fetchDexQuote(underlying, false),
     ]);
 
     return {
-      vusdDexPrice: dexSellQuote.price,
-      vusdDexBuyPrice: dexBuyQuote.price,
-      dexQuote: dexSellQuote,
+      peggedDexSellPrice: dexSellQuote.price,
+      peggedDexBuyPrice: dexBuyQuote.price,
+      dexSellQuote,
       dexBuyQuote,
       gatewayMintOutput,
       mintFeeBps: Number(mintFeeBps),
       redeemFeeBps: Number(redeemFeeBps),
-      stablecoin,
+      underlying,
     };
   }
 
-  async getCapacity(stablecoin: StablecoinConfig): Promise<{maxMint: bigint; maxWithdraw: bigint}> {
+  async getCapacity(underlying: UnderlyingToken): Promise<{maxMint: bigint; maxWithdraw: bigint}> {
     const [maxMint, maxWithdraw] = await Promise.all([
       this.gateway.maxMint() as Promise<bigint>,
-      this.gateway.maxWithdraw(stablecoin.address) as Promise<bigint>,
+      this.gateway.maxWithdraw(underlying.address) as Promise<bigint>,
     ]);
     return {maxMint, maxWithdraw};
   }
 
   /**
-   * Fetch VUSD DEX price by querying all enabled sources in parallel and
-   * picking the best price. Sources that fail or return no route are ignored.
+   * Fetch pegged-token DEX price by querying all enabled sources in parallel
+   * and picking the best price. Sources that fail or return no route are ignored.
    *
    * Best price:
-   *   sell direction (VUSD→stablecoin): highest stablecoin-per-VUSD (more output)
-   *   buy direction  (stablecoin→VUSD): lowest  stablecoin-per-VUSD (less cost)
+   *   sell direction (pegged → underlying): highest underlying-per-pegged (more output)
+   *   buy direction  (underlying → pegged): lowest  underlying-per-pegged (less cost)
    *
-   * @param vusdIsInput true = sell direction (VUSD→stablecoin), false = buy direction (stablecoin→VUSD)
+   * @param peggedIsInput true = sell direction, false = buy direction
    */
-  private async fetchDexQuote(stablecoin: StablecoinConfig, vusdIsInput: boolean): Promise<DexQuoteResult> {
-    const dirLabel = vusdIsInput ? "sell" : "buy";
+  private async fetchDexQuote(underlying: UnderlyingToken, peggedIsInput: boolean): Promise<DexQuoteResult> {
+    const dirLabel = peggedIsInput ? "sell" : "buy";
 
-    // For sell: quote 1000 VUSD → stablecoin, price = stablecoin_out / 1000
-    // For buy:  quote 1000 stablecoin → VUSD, price = 1000 / vusd_out (cost per VUSD)
-    const srcDecimals = vusdIsInput ? 18 : stablecoin.decimals;
-    const destDecimals = vusdIsInput ? stablecoin.decimals : 18;
-    const srcToken = vusdIsInput ? this.config.vusdAddress : stablecoin.address;
-    const destToken = vusdIsInput ? stablecoin.address : this.config.vusdAddress;
-    const quoteAmount = ethers.parseUnits("1000", srcDecimals);
+    // For sell: quote N pegged → underlying, price = underlying_out / N
+    // For buy:  quote N underlying → pegged, price = N / pegged_out (cost per pegged)
+    // N = product.priceQuoteAmount — sized to keep DEX price-impact reasonable.
+    const srcDecimals = peggedIsInput ? this.config.product.peggedToken.decimals : underlying.decimals;
+    const destDecimals = peggedIsInput ? underlying.decimals : this.config.product.peggedToken.decimals;
+    const srcToken = peggedIsInput ? this.config.peggedTokenAddress : underlying.address;
+    const destToken = peggedIsInput ? underlying.address : this.config.peggedTokenAddress;
+    const quoteAmount = ethers.parseUnits(String(this.config.product.priceQuoteAmount), srcDecimals);
 
     const aggregatorQuotes = this.aggregators.map(async (adapter): Promise<DexQuoteResult | null> => {
       try {
@@ -88,7 +90,7 @@ export class PriceMonitor {
           chainId: this.config.chainId,
         });
         if (destAmount === null || destAmount <= 0n) return null;
-        const price = this.computeVusdPrice(quoteAmount, destAmount, srcDecimals, destDecimals, vusdIsInput);
+        const price = this.computePeggedPrice(quoteAmount, destAmount, srcDecimals, destDecimals, peggedIsInput);
         return {price, source: adapter.name};
       } catch {
         return null;
@@ -99,14 +101,14 @@ export class PriceMonitor {
       if (!this.config.enableCurveRouter) return null;
       try {
         const q = await this.dexQuoter.quoteCurveRouter(
-          stablecoin.address,
+          underlying.address,
           quoteAmount,
           destDecimals,
           srcDecimals,
-          vusdIsInput,
+          peggedIsInput,
         );
         if (!q) return null;
-        const price = vusdIsInput ? q.price : 1000 / (q.price * 1000);
+        const price = peggedIsInput ? q.price : 1000 / (q.price * 1000);
         return {...q, price};
       } catch {
         return null;
@@ -117,43 +119,37 @@ export class PriceMonitor {
     const candidates = results.filter((q): q is DexQuoteResult => q !== null);
 
     if (candidates.length === 0) {
-      console.warn(`  [${stablecoin.symbol}] All DEX ${dirLabel} price sources failed, defaulting to 1.0`);
+      console.warn(`  [${underlying.symbol}] All DEX ${dirLabel} price sources failed, defaulting to 1.0`);
       return {price: 1.0, source: "default"};
     }
 
     // sell: pick highest; buy: pick lowest
     const best = candidates.reduce((a, b) =>
-      vusdIsInput ? (a.price > b.price ? a : b) : (a.price < b.price ? a : b),
+      peggedIsInput ? (a.price > b.price ? a : b) : (a.price < b.price ? a : b),
     );
 
     const summary = candidates.map((c) => `${c.source}=${c.price.toFixed(6)}`).join(", ");
     console.log(
-      `  [${stablecoin.symbol}] DEX ${dirLabel} quotes: ${summary} → using ${best.source} (${best.price.toFixed(6)})`,
+      `  [${underlying.symbol}] DEX ${dirLabel} quotes: ${summary} → using ${best.source} (${best.price.toFixed(6)})`,
     );
 
     return best;
   }
 
   /**
-   * Convert raw quote amounts into a VUSD price (stablecoin per VUSD).
+   * Convert raw quote amounts into a pegged-token price (underlying per pegged).
    * Sell: price = destAmount / 10^destDec / (srcAmount / 10^srcDec)
-   * Buy:  price = srcAmount / 10^srcDec / (destAmount / 10^destDec)  (cost per VUSD)
+   * Buy:  price = srcAmount / 10^srcDec / (destAmount / 10^destDec)  (cost per pegged)
    */
-  private computeVusdPrice(
+  private computePeggedPrice(
     srcAmount: bigint,
     destAmount: bigint,
     srcDecimals: number,
     destDecimals: number,
-    vusdIsInput: boolean,
+    peggedIsInput: boolean,
   ): number {
     const src = Number(srcAmount) / 10 ** srcDecimals;
     const dest = Number(destAmount) / 10 ** destDecimals;
-    if (vusdIsInput) {
-      // Sell: 1000 VUSD → X stablecoin → price = X/1000
-      return dest / src;
-    } else {
-      // Buy: 1000 stablecoin → Y VUSD → cost per VUSD = 1000/Y
-      return src / dest;
-    }
+    return peggedIsInput ? dest / src : src / dest;
   }
 }

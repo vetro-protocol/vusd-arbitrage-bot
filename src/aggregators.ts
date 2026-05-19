@@ -1,5 +1,18 @@
 import {DexSource, SwapParams} from "./types";
 
+/** Hard ceiling per HTTP call so a hung aggregator can't stall the keeper. */
+const FETCH_TIMEOUT_MS = 8000;
+
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = FETCH_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, {...init, signal: controller.signal});
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /**
  * Common interface for DEX aggregator APIs.
  * Each adapter provides price quoting and swap calldata building.
@@ -61,7 +74,7 @@ export class OneInchAdapter implements AggregatorAdapter {
       url.searchParams.set("dst", p.destToken);
       url.searchParams.set("amount", p.amount.toString());
 
-      const res = await fetch(url.toString(), {headers: this.headers()});
+      const res = await fetchWithTimeout(url.toString(), {headers: this.headers()});
       if (!res.ok) return null;
 
       const data = await res.json();
@@ -81,7 +94,7 @@ export class OneInchAdapter implements AggregatorAdapter {
     url.searchParams.set("slippage", (p.slippageBps / 100).toString());
     url.searchParams.set("disableEstimate", "true");
 
-    const res = await fetch(url.toString(), {headers: this.headers()});
+    const res = await fetchWithTimeout(url.toString(), {headers: this.headers()});
     if (!res.ok) {
       throw new Error(`1inch swap build failed: ${res.status}`);
     }
@@ -124,7 +137,7 @@ export class ZeroXAdapter implements AggregatorAdapter {
       url.searchParams.set("sellAmount", p.amount.toString());
       url.searchParams.set("chainId", p.chainId.toString());
 
-      const res = await fetch(url.toString(), {headers: this.headers()});
+      const res = await fetchWithTimeout(url.toString(), {headers: this.headers()});
       if (!res.ok) return null;
 
       const data = await res.json();
@@ -143,7 +156,7 @@ export class ZeroXAdapter implements AggregatorAdapter {
     url.searchParams.set("taker", p.receiver);
     url.searchParams.set("slippageBps", p.slippageBps.toString());
 
-    const res = await fetch(url.toString(), {headers: this.headers()});
+    const res = await fetchWithTimeout(url.toString(), {headers: this.headers()});
     if (!res.ok) {
       throw new Error(`0x swap build failed: ${res.status}`);
     }
@@ -183,7 +196,7 @@ export class LiFiAdapter implements AggregatorAdapter {
       url.searchParams.set("fromAmount", p.amount.toString());
       url.searchParams.set("fromAddress", "0x0000000000000000000000000000000000000001");
 
-      const res = await fetch(url.toString(), {headers: this.headers});
+      const res = await fetchWithTimeout(url.toString(), {headers: this.headers});
       if (!res.ok) return null;
 
       const data = await res.json();
@@ -204,7 +217,7 @@ export class LiFiAdapter implements AggregatorAdapter {
     url.searchParams.set("toAddress", p.receiver);
     url.searchParams.set("slippage", (p.slippageBps / 10000).toFixed(4));
 
-    const res = await fetch(url.toString(), {headers: this.headers});
+    const res = await fetchWithTimeout(url.toString(), {headers: this.headers});
     if (!res.ok) {
       throw new Error(`LiFi swap build failed: ${res.status}`);
     }
