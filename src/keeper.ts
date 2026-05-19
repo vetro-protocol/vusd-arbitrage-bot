@@ -77,6 +77,7 @@ export class Keeper {
     console.log("═══════════════════════════════════════════════════");
     console.log(`  Stablecoins : ${this.config.stablecoins.map((s) => s.symbol).join(", ")}`);
     console.log(`  Flash loan  : Morpho (0bps fee)`);
+    console.log(`  Mode        : ${this.executor.isDryRun ? "DRY-RUN (no PRIVATE_KEY — txs will be skipped)" : "LIVE"}`);
     console.log(`  Min profit  : $${this.config.minProfitUsd}`);
     console.log(`  Poll        : ${this.config.pollIntervalMs / 1000}s`);
     console.log(
