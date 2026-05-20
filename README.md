@@ -93,6 +93,9 @@ src/                   TypeScript keeper bot
   config.ts            Env loader — selects product, applies overrides
   constants.ts         Global infra addresses (Morpho, Curve Router)
   types.ts             Shared types
+Dockerfile             Multi-stage image — one image runs either product
+docker-compose.yml     Runs VUSD + VETBTC as two containers
+.dockerignore          Build-context excludes (keeps secrets out of layers)
 ```
 
 ## Product Catalogue (`src/products.ts`)
@@ -371,6 +374,88 @@ WantedBy=multi-user.target
 ```
 
 Duplicate as `arb-vetbtc.service` with `--env-file=/srv/arb/.env.vetbtc`.
+
+## Docker (DevOps)
+
+The repo ships a `Dockerfile` and `docker-compose.yml`. **One image runs both
+products** — `PRODUCT` is selected at runtime via the env file, never baked in.
+No secrets are copied into the image: all config arrives as runtime env vars.
+
+### Prerequisites
+
+- Docker Engine 20.10+ (with the `docker compose` plugin)
+- `.env.vusd` and/or `.env.vetbtc` present in the repo root (see "Environment
+  Variables" above). These are **not** copied into the image — they are read at
+  `docker run` time.
+
+### Option A — docker compose (runs both products)
+
+```bash
+# Build the image and start both keepers as background containers
+docker compose up -d --build
+
+# Tail logs (one product, or omit the name for both)
+docker compose logs -f vetbtc
+docker compose logs -f vusd
+
+# Restart / stop
+docker compose restart vetbtc
+docker compose down
+```
+
+Each service has `restart: unless-stopped`, so a crashed keeper auto-restarts
+and survives host reboots. To run only one product:
+
+```bash
+docker compose up -d --build vetbtc
+```
+
+### Option B — plain docker (single product)
+
+```bash
+# Build once
+docker build -t vetro-arb-bot:latest .
+
+# Run VETBTC
+docker run -d --name arb-vetbtc \
+  --env-file .env.vetbtc \
+  --restart unless-stopped \
+  vetro-arb-bot:latest
+
+# Run VUSD
+docker run -d --name arb-vusd \
+  --env-file .env.vusd \
+  --restart unless-stopped \
+  vetro-arb-bot:latest
+
+# Logs
+docker logs -f arb-vetbtc
+```
+
+### Dry-run vs live in Docker
+
+Same rule as bare-metal: if `PRIVATE_KEY` is absent from the env file the
+container runs in **dry-run** mode. Confirm via the startup banner:
+
+```bash
+docker compose logs vetbtc | grep Mode
+#   Mode        : DRY-RUN (no PRIVATE_KEY — txs will be skipped)
+```
+
+Go live by adding `PRIVATE_KEY` to the env file and recreating the container
+(`docker compose up -d vetbtc` / `docker run` again).
+
+### Notes for operators
+
+- **Secrets**: `.env*` files are excluded by `.dockerignore`, so private keys
+  never land in an image layer. Keep the env files readable only by the deploy
+  user (`chmod 600 .env.vetbtc`).
+- **Updating the bot**: after pulling new code, `docker compose up -d --build`
+  rebuilds and recreates containers with zero extra steps.
+- **Signal handling**: `init: true` (compose) / Docker's default init forwards
+  `SIGTERM` so the keeper's graceful `keeper.stop()` runs on `docker stop`.
+- **Image size**: multi-stage build ships only `dist/` + production deps
+  (`ethers`, `dotenv`) — no `tsc`, no Foundry artifacts.
 
 ### Example startup output (VUSD live mode)
 

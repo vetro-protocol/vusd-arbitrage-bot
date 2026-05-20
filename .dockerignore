@@ -1,0 +1,21 @@
+# Keep the build context small and secrets out of image layers.
+node_modules
+dist
+.env
+.env.*
+.git
+.gitignore
+
+# Foundry / Solidity — not needed by the TypeScript bot image
+lib
+out
+broadcast
+cache
+contracts
+script
+test
+foundry.toml
+
+# Misc
+*.log
+README.md
