@@ -4,20 +4,20 @@ pragma solidity 0.8.30;
 import {Test, console2} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import {VUSDArbitrage} from "../contracts/VUSDArbitrage.sol";
+import {VetroArbitrage} from "../contracts/VetroArbitrage.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockGateway} from "./mocks/MockGateway.sol";
 import {MockDex} from "./mocks/MockDex.sol";
 
-/// @title VUSDArbitrageForkTest
+/// @title VetroArbitrageForkTest
 /// @notice Tests flashloan borrow+repay with real Morpho on Ethereum mainnet fork
-/// @dev Run with: ETHEREUM_RPC_URL=<rpc> forge test --mc VUSDArbitrageForkTest -vvv
-contract VUSDArbitrageForkTest is Test {
+/// @dev Run with: ETHEREUM_RPC_URL=<rpc> forge test --mc VetroArbitrageForkTest -vvv
+contract VetroArbitrageForkTest is Test {
     // Real mainnet addresses
     address constant MORPHO = 0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb;
     address constant USDC = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
 
-    VUSDArbitrage public arb;
+    VetroArbitrage public arb;
     MockERC20 public vusd;
     MockGateway public gateway;
     MockDex public dex;
@@ -54,7 +54,7 @@ contract VUSDArbitrageForkTest is Test {
         deal(USDC, address(dex), 5_000_000e6);
 
         // Deploy arb contract (10% keeper share)
-        arb = new VUSDArbitrage(address(gateway), keeper, treasury, 1000, owner);
+        arb = new VetroArbitrage(address(gateway), keeper, treasury, 1000, owner);
 
         // Set real Morpho as flash loan provider
         vm.startPrank(owner);
@@ -84,7 +84,7 @@ contract VUSDArbitrageForkTest is Test {
         bytes memory swapCalldata =
             abi.encodeWithSelector(MockDex.swapAforB.selector, 100_000e18, 0);
 
-        VUSDArbitrage.SwapParams memory swapParams = VUSDArbitrage.SwapParams({
+        VetroArbitrage.SwapParams memory swapParams = VetroArbitrage.SwapParams({
             target: address(dex),
             approveTarget: address(dex),
             swapCalldata: swapCalldata,
@@ -116,7 +116,7 @@ contract VUSDArbitrageForkTest is Test {
         bytes memory swapCalldata =
             abi.encodeWithSelector(MockDex.swapBforA.selector, 100_000e6, 0);
 
-        VUSDArbitrage.SwapParams memory swapParams = VUSDArbitrage.SwapParams({
+        VetroArbitrage.SwapParams memory swapParams = VetroArbitrage.SwapParams({
             target: address(dex),
             approveTarget: address(dex),
             swapCalldata: swapCalldata,

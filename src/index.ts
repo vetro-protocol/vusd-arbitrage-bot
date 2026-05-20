@@ -4,7 +4,8 @@ import {loadConfig} from "./config";
 
 async function main() {
   const config = loadConfig();
-  const keeper = new Keeper(config);
+  // PRIVATE_KEY is read directly from env (never put in Config). Unset → dry-run mode.
+  const keeper = new Keeper(config, process.env.PRIVATE_KEY);
 
   process.on("SIGINT", () => {
     keeper.stop();

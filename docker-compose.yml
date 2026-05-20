@@ -1,0 +1,21 @@
+# Runs both products as independent containers from a single shared image.
+# Each reads its own env file — create .env.vusd and .env.vetbtc first.
+#
+#   docker compose up -d --build      # start both
+#   docker compose logs -f vetbtc     # tail one product
+#   docker compose down               # stop both
+
+services:
+  vusd:
+    build: .
+    image: vetro-arb-bot:latest
+    env_file: .env.vusd
+    restart: unless-stopped
+    init: true
+
+  vetbtc:
+    build: .
+    image: vetro-arb-bot:latest
+    env_file: .env.vetbtc
+    restart: unless-stopped
+    init: true

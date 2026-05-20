@@ -10,12 +10,6 @@ export interface SwapParams {
   minAmountOut: bigint;
 }
 
-export interface StablecoinConfig {
-  address: string;
-  symbol: string;
-  decimals: number;
-}
-
 export type DexSource = "1inch" | "0x" | "lifi" | "curve_router" | "default";
 
 export interface DexQuoteResult {
@@ -23,59 +17,41 @@ export interface DexQuoteResult {
   source: DexSource;
 }
 
-export interface CurveRouterHop {
-  pool: string;
-  /** Input token index in the pool (buy direction: stablecoin → crvUSD → VUSD) */
-  i: number;
-  /** Output token index in the pool (buy direction) */
-  j: number;
-  swapType: number;
-  poolType: number;
-  nCoins: number;
-}
-
-export interface CurveRouterRouteConfig {
-  /** Hops in BUY direction: stablecoin → intermediateToken → VUSD. Reversed for sell. */
-  hops: [CurveRouterHop, CurveRouterHop];
-  /** Intermediate token address (e.g., crvUSD) */
-  intermediateToken: string;
-}
-
 export interface PriceData {
-  /** VUSD sell price: how much stablecoin you get per VUSD sold on DEX (e.g., 0.9927) */
-  vusdDexPrice: number;
-  /** VUSD buy price: how much stablecoin it costs to buy 1 VUSD on DEX (e.g., 0.9940) */
-  vusdDexBuyPrice: number;
+  /** Sell price: how much underlying you get per 1 pegged token sold on DEX */
+  peggedDexSellPrice: number;
+  /** Buy price: how much underlying it costs to buy 1 pegged token on DEX */
+  peggedDexBuyPrice: number;
   /** Which DEX source provided the sell quote */
-  dexQuote: DexQuoteResult;
+  dexSellQuote: DexQuoteResult;
   /** Which DEX source provided the buy quote */
   dexBuyQuote: DexQuoteResult;
-  /** Gateway previewDeposit result: VUSD out for depositing testAmount of stablecoin */
+  /** Gateway previewDeposit result: pegged tokens out for depositing testAmount of underlying */
   gatewayMintOutput: bigint;
   /** Mint fee in BPS */
   mintFeeBps: number;
   /** Redeem fee in BPS */
   redeemFeeBps: number;
-  stablecoin: StablecoinConfig;
-}
-
-/**
- * A single tier mapping a minimum price deviation (bps) to a flash loan amount (USD).
- * Tiers are sorted descending by deviationBps — first match wins.
- */
-export interface FlashAmountTier {
-  /** Minimum deviation in bps (e.g., 500 = 5%) */
-  deviationBps: number;
-  /** Flash loan amount in USD (before decimals) */
-  amountUsd: number;
+  /** Which underlying token this price data is for */
+  underlying: import("./products").UnderlyingToken;
 }
 
 export interface ArbOpportunity {
   direction: ArbDirection;
-  stablecoin: StablecoinConfig;
+  underlying: import("./products").UnderlyingToken;
   flashAmount: bigint;
   swapParams: SwapParams;
-  estimatedProfitUsd: number;
-  dexPriceVusd: number;
+  estimatedProfitBase: number;
+  dexPricePegged: number;
   minProfit: bigint;
 }
+
+// Re-export product types so they show up as one type-surface to consumers.
+export type {
+  PeggedToken,
+  UnderlyingToken,
+  CurveRouterHop,
+  CurveRouterRoute,
+  FlashAmountTier,
+  Product,
+} from "./products";
