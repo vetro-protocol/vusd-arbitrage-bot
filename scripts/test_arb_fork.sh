@@ -19,7 +19,11 @@
 
 set -e
 
-RPC="${ETHEREUM_RPC_URL:-https://eth-mainnet.g.alchemy.com/v2/QLc48ptvsz_WFIKXP_VMk3IX2AbqTBmn}"
+if [ -z "$ETHEREUM_RPC_URL" ]; then
+  echo "Error: ETHEREUM_RPC_URL is not set. Export a mainnet RPC URL before running this script."
+  exit 1
+fi
+RPC="$ETHEREUM_RPC_URL"
 ANVIL_RPC="http://127.0.0.1:8545"
 
 # Contracts
