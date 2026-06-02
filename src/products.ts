@@ -116,7 +116,7 @@ const VUSD: Product = {
   },
   gatewayAddress: "0xDaD503f8B9d42bb7af3AfC588358D30163e4416F",
   treasuryAddress: "0xC8317A10385BE07901A4c9ee3d06E1D83AE378c9",
-  arbitrageAddress: "0x1C17CC10ddc5B352f7c6C5dDa33B07769bff310a",
+  arbitrageAddress: "0x359902B1e60574E56248EcDC57c1Df1f20982914",
   underlyingTokens: [USDC, USDT],
   curveRouterRoutes: {
     // USDC → crvUSD → VUSD
