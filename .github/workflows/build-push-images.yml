@@ -26,13 +26,13 @@ jobs:
         run: |
           {
             echo 'tags<<EOF'
-            echo "hemilabs/vusd-arbitrage-bot:${{ github.sha }}"
-            echo "hemilabs/vusd-arbitrage-bot:sha-$(echo ${{ github.sha }} | cut -c1-7)"
-            if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "hemilabs/vusd-arbitrage-bot:${GITHUB_SHA}"
+            echo "hemilabs/vusd-arbitrage-bot:sha-${GITHUB_SHA::7}"
+            if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
               echo "hemilabs/vusd-arbitrage-bot:main"
             fi
-            if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-              echo "hemilabs/vusd-arbitrage-bot:${{ github.ref_name }}"
+            if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+              echo "hemilabs/vusd-arbitrage-bot:${GITHUB_REF_NAME}"
               echo "hemilabs/vusd-arbitrage-bot:latest"
             fi
             echo EOF
@@ -40,7 +40,7 @@ jobs:
 
   docker:
     needs: prepare
-    uses: hemilabs/.github/.github/workflows/docker.yml@main
+    uses: hemilabs/.github/.github/workflows/docker.yml@c1b3c0381dea671b3bc91bdbe08013851c6a6c67 # main
     with:
       version: ${{ needs.prepare.outputs.version }}
       tags: ${{ needs.prepare.outputs.tags }}
