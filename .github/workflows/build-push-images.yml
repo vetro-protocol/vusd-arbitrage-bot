@@ -1,0 +1,52 @@
+name: Publish Docker images
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tags: ${{ steps.tags.outputs.tags }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - id: version
+        run: echo "version=$(jq -r '.version' package.json)" >> "$GITHUB_OUTPUT"
+      - id: tags
+        run: |
+          {
+            echo 'tags<<EOF'
+            echo "hemilabs/vusd-arbitrage-bot:${GITHUB_SHA}"
+            echo "hemilabs/vusd-arbitrage-bot:sha-${GITHUB_SHA::7}"
+            if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+              echo "hemilabs/vusd-arbitrage-bot:main"
+            fi
+            if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+              echo "hemilabs/vusd-arbitrage-bot:${GITHUB_REF_NAME}"
+              echo "hemilabs/vusd-arbitrage-bot:latest"
+            fi
+            echo EOF
+          } >> "$GITHUB_OUTPUT"
+
+  docker:
+    needs: prepare
+    uses: hemilabs/.github/.github/workflows/docker.yml@c1b3c0381dea671b3bc91bdbe08013851c6a6c67 # main
+    with:
+      version: ${{ needs.prepare.outputs.version }}
+      tags: ${{ needs.prepare.outputs.tags }}
+      dockerhub: true
+      context: .
+      file: ./Dockerfile
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_TOKEN }}
