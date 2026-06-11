@@ -62,6 +62,82 @@ node --env-file=.env.vetbtc dist/index.js
 
 Or under systemd/pm2 — see "Process Supervision" below. Independent processes give you independent crashes, independent restarts, and per-product log streams for free.
 
+## Per-product env files (`.env.vusd` / `.env.vetbtc`) — DevOps prep
+
+Each product runs from **its own env file**. `docker-compose.yml` expects exactly two files in the repo root: `.env.vusd` (loaded by the `vusd` service) and `.env.vetbtc` (loaded by the `vetbtc` service). Create them before `docker compose up`.
+
+> All product addresses, Curve routes and tuning defaults are committed in `src/products.ts` — operators only set the few values below. **Never commit these env files** (`.env*` is git-ignored).
+
+### DevOps checklist (do this for each product)
+
+1. **RPC** — provision an Ethereum **mainnet** JSON-RPC URL (Alchemy / Infura / QuickNode).
+2. **Aggregator keys** — get a [1inch](https://portal.1inch.dev/) key and a [0x/Matcha](https://dashboard.0x.org/) key. LiFi is optional. The **same keys can be reused for both products**.
+3. **Keeper wallet** — generate a **separate** wallet per product (don't share one key across VUSD and vetBTC). Fund each with ETH for gas. See "Keeper Wallet Setup" below. Store the private key as hex **without the `0x` prefix**.
+4. **Start in dry-run first** — leave `PRIVATE_KEY` empty, confirm the startup banner shows `Mode: DRY-RUN` and prices stream cleanly, then add the key and restart for live mode.
+5. **Secrets handling** — inject these files via your secrets manager / CI secret store (Docker secrets, SOPS, Vault, GH Actions secrets). Never bake them into the image — `.dockerignore` already excludes `.env*` from the build context.
+
+### `.env.vusd`
+
+```bash
+# ── VUSD keeper bot ───────────────────────────────────────────────
+PRODUCT=VUSD                                          # selects the VUSD product
+ETHEREUM_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY
+
+# Keeper wallet — hex, NO 0x prefix. Leave EMPTY for dry-run (no txs).
+PRIVATE_KEY=
+
+# DEX aggregator keys (get 1inch + 0x before going live; LiFi optional)
+ONEINCH_API_KEY=YOUR_1INCH_KEY
+ZEROX_API_KEY=YOUR_0X_KEY
+LIFI_API_KEY=
+
+# Tuning — values in USDC (VUSD's underlying base asset). All optional;
+# defaults come from src/products.ts.
+MIN_PROFIT_BASE=20                                    # 20 USDC, well above gas
+ESTIMATED_GAS_COST_BASE=15
+MAX_GAS_PRICE_GWEI=40
+SLIPPAGE_BPS=50
+POLL_INTERVAL_MS=5000
+
+# Optional — override the deployed arbitrage contract from products.ts
+# ARBITRAGE_ADDRESS=0x1C17CC10ddc5B352f7c6C5dDa33B07769bff310a
+```
+
+### `.env.vetbtc`
+
+```bash
+# ── vetBTC keeper bot ─────────────────────────────────────────────
+PRODUCT=VETBTC                                        # selects the vetBTC product
+ETHEREUM_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY
+
+# Keeper wallet — hex, NO 0x prefix. Use a DIFFERENT wallet than VUSD.
+# Leave EMPTY for dry-run (no txs).
+PRIVATE_KEY=
+
+# DEX aggregator keys (same keys as VUSD are fine)
+ONEINCH_API_KEY=YOUR_1INCH_KEY
+ZEROX_API_KEY=YOUR_0X_KEY
+
+# Tuning — values in WBTC (vetBTC's underlying base asset). The vetBTC/WBTC
+# pool is shallow (~$1k TVL) — keep sizes small until liquidity grows.
+MIN_PROFIT_BASE=0.0002                                # ~$18 at BTC=$90k
+ESTIMATED_GAS_COST_BASE=0.0001                        # ~$9
+MAX_FLASH_AMOUNT=0.5                                  # 0.5 WBTC cap
+MAX_GAS_PRICE_GWEI=40
+SLIPPAGE_BPS=50
+POLL_INTERVAL_MS=5000
+
+# Optional — override the deployed arbitrage contract from products.ts
+# ARBITRAGE_ADDRESS=0xB174B2C57AFD9Be660F4c00DF568Fe4c34401aEE
+```
+
+Then launch both with Docker:
+
+```bash
+docker compose up -d --build      # starts vusd + vetbtc containers
+docker compose logs -f vetbtc     # tail one product
+```
+
 ## Prerequisites
 
 - [Foundry](https://getfoundry.sh/) (`forge`, `anvil`, `cast`) — for tests and deployment
@@ -209,7 +285,7 @@ Without any aggregator keys the bot falls back to the on-chain Curve Router quot
 
 | Variable             | Description |
 | -------------------- | ----------- |
-| `ARBITRAGE_ADDRESS`  | Override the arbitrage contract address from `src/products.ts`. **Required for VETBTC** until contract is deployed and the default is updated. |
+| `ARBITRAGE_ADDRESS`  | Optional override of the arbitrage contract address from `src/products.ts`. Both VUSD and VETBTC contracts are deployed, so the committed defaults work out of the box — only set this to point at a different deployment. |
 
 ### Bot tuning (all optional)
 
@@ -219,7 +295,7 @@ Defaults come from the selected product in `src/products.ts`. Values are denomin
 | -------------------------- | ------------------------ | ----------- |
 | `MIN_PROFIT_BASE`          | `5` / `0.0001`           | Minimum estimated profit (in base asset) to execute |
 | `ESTIMATED_GAS_COST_BASE`  | `5` / `0.00006`          | Gas-cost assumption subtracted from profit estimate |
-| `MAX_FLASH_AMOUNT`         | `1000000` / `10`         | Cap on flash size (human units of base asset) |
+| `MAX_FLASH_AMOUNT`         | `1000000` / `0.5`        | Cap on flash size (human units of base asset) |
 | `FLASH_AMOUNT_TIERS`       | see `products.ts`        | JSON: `[[deviationBps, amount], …]`, first match wins |
 | `POLL_INTERVAL_MS`         | `5000`                   | Price poll interval (ms) |
 | `MAX_GAS_PRICE_GWEI`       | `50`                     | Skip if gas price exceeds this |
