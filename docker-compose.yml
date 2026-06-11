@@ -1,3 +1,9 @@
+# Copyright (c) 2026 Hemi Labs, Inc.
+# Use of this source code is governed by the MIT License,
+# which can be found in the LICENSE file.
+
+# This file is intended for LOCAL DEVELOPMENT USE ONLY.
+#
 # Runs both products as independent containers from a single shared image.
 # Each reads its own env file — create .env.vusd and .env.vetbtc first.
 #
@@ -8,14 +14,46 @@
 services:
   vusd:
     build: .
-    image: vetro-arb-bot:latest
     env_file: .env.vusd
     restart: unless-stopped
-    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 512m
+    ulimits:
+      nofile:
+        soft: 1024
+        hard: 1024
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
 
   vetbtc:
     build: .
-    image: vetro-arb-bot:latest
     env_file: .env.vetbtc
     restart: unless-stopped
-    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 512m
+    ulimits:
+      nofile:
+        soft: 1024
+        hard: 1024
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
