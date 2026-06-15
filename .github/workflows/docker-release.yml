@@ -1,0 +1,27 @@
+name: "Docker"
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  docker:
+    name: "Build and push"
+    uses: hemilabs/.github/.github/workflows/docker.yml@b53688e1a282b5e362d76921c8d54123c0a8f2e5 # v1.3.0
+    permissions:
+      contents: read
+      packages: write # Needed to push to GitHub Container Registry (ghcr.io).
+    with:
+      version: "${{ env.GITHUB_REF_NAME }}"
+      tags: |
+        hemilabs/vusd-arbitrage-bot:${{ env.GITHUB_REF_NAME }}
+        hemilabs/vusd-arbitrage-bot:latest
+        ghcr.io/vetro-protocol/vusd-arbitrage-bot:${{ env.GITHUB_REF_NAME }}
+        ghcr.io/vetro-protocol/vusd-arbitrage-bot:latest
+      dockerhub: true
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_TOKEN }}
