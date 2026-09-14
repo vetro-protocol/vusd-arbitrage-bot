@@ -21,25 +21,30 @@ export interface DeployedAddresses {
 let anvilProcess: ChildProcess | null = null;
 
 export async function startAnvil(port = 8545): Promise<void> {
-  return new Promise((resolve, reject) => {
-    anvilProcess = spawn("anvil", ["--port", String(port)], {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-
-    const timeout = setTimeout(() => reject(new Error("Anvil startup timeout")), 15_000);
-
-    anvilProcess.stdout?.on("data", (data: Buffer) => {
-      if (data.toString().includes("Listening on")) {
-        clearTimeout(timeout);
-        resolve();
-      }
-    });
-
-    anvilProcess.on("error", (err) => {
-      clearTimeout(timeout);
-      reject(new Error(`Failed to start Anvil: ${err.message}. Is foundry installed?`));
-    });
+  // stdio must not be piped into this process: deployMocks() uses execSync, which
+  // blocks the event loop, so nothing would drain the pipe. Anvil logs every RPC
+  // call forge makes, fills the 64KB buffer, and blocks — deadlocking the deploy.
+  anvilProcess = spawn("anvil", ["--port", String(port), "--silent"], {stdio: "ignore"});
+  anvilProcess.on("error", (err) => {
+    throw new Error(`Failed to start Anvil: ${err.message}. Is foundry installed?`);
   });
+
+  const deadline = Date.now() + 15_000;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({jsonrpc: "2.0", id: 1, method: "eth_blockNumber", params: []}),
+      });
+      if (res.ok) return;
+    } catch {
+      // not listening yet
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+
+  throw new Error("Anvil startup timeout");
 }
 
 export function stopAnvil(): void {
