@@ -5,6 +5,12 @@ import * as Constants from "./constants";
 export interface Config {
   // ── Global infra ──────────────────────────────────────────────────────
   rpcUrl: string;
+  /**
+   * Send-only endpoint. Defaults to a Flashbots Protect URL: transactions that
+   * would revert are never included, so a lost race costs no gas. Reads and
+   * simulation always go through `rpcUrl`.
+   */
+  sendRpcUrl: string;
   chainId: number;
   /** Morpho flash loan pool */
   morphoAddress: string;
@@ -44,6 +50,9 @@ export interface Config {
   maxGasPriceGwei: number;
   /** DEX swap slippage tolerance (bps) */
   slippageBps: number;
+
+  /** How long to wait for inclusion before treating a tx as dropped (ms) */
+  inclusionTimeoutMs: number;
 }
 
 export function loadConfig(): Config {
@@ -65,6 +74,7 @@ export function loadConfig(): Config {
 
   return {
     rpcUrl: process.env.ETHEREUM_RPC_URL!,
+    sendRpcUrl: process.env.SEND_RPC_URL || "https://rpc.flashbots.net/fast?blocksToLive=1",
     chainId: 1,
     morphoAddress: Constants.MORPHO_ADDRESS,
     curveRouterAddress: Constants.CURVE_ROUTER_ADDRESS,
@@ -91,6 +101,10 @@ export function loadConfig(): Config {
     pollIntervalMs: parseInt(process.env.POLL_INTERVAL_MS || "5000"),
     maxGasPriceGwei: parseInt(process.env.MAX_GAS_PRICE_GWEI || "50"),
     slippageBps: parseInt(process.env.SLIPPAGE_BPS || "50"),
+
+    // Protect offers the tx for blocksToLive blocks, then drops it. Waiting much
+    // past that just blocks the keeper loop — execute() is awaited per underlying.
+    inclusionTimeoutMs: parseInt(process.env.INCLUSION_TIMEOUT_MS || "30000"),
   };
 }
 

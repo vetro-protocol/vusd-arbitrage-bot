@@ -1,4 +1,5 @@
 import {describe, it, expect, beforeAll, afterAll, beforeEach, afterEach} from "vitest";
+import http from "node:http";
 import {ethers} from "ethers";
 import {startAnvil, stopAnvil, deployMocks, DeployedAddresses, ANVIL_PRIVATE_KEY, ANVIL_ADMIN_KEY} from "./anvil";
 import {MockDexAdapter} from "./mockDexAdapter";
@@ -16,6 +17,43 @@ const CHAIN_ID = 31337;
 
 const MOCK_DEX_ABI = ["function setPrice(uint256 priceAinB_) external", "function priceAinB() view returns (uint256)"];
 const ERC20_ABI = ["function balanceOf(address) view returns (uint256)"];
+
+/**
+ * Stands in for Flashbots Protect declining to include a transaction: accepts
+ * eth_sendRawTransaction, hands back a hash, and never mines it. Exactly what a
+ * lost one-block race looks like from the bot's side.
+ */
+async function startDroppingRpc(): Promise<{url: string; close: () => Promise<void>}> {
+  const server = http.createServer((req, res) => {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      // ethers batches JSON-RPC calls, so the payload may be an array.
+      const payload = JSON.parse(body);
+      const answer = ({id, method}: {id: number; method: string}) => ({
+        jsonrpc: "2.0",
+        id,
+        result:
+          method === "eth_sendRawTransaction"
+            ? "0x" + "ab".repeat(32) // plausible hash for a tx that will never land
+            : method === "eth_chainId"
+              ? "0x" + CHAIN_ID.toString(16)
+              : method === "net_version"
+                ? String(CHAIN_ID)
+                : "0x0",
+      });
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify(Array.isArray(payload) ? payload.map(answer) : answer(payload)));
+    });
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const {port} = server.address() as {port: number};
+  return {
+    url: `http://127.0.0.1:${port}`,
+    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+  };
+}
 
 describe("E2E: Off-chain arbitrage pipeline", () => {
   let provider: ethers.JsonRpcProvider;
@@ -61,10 +99,13 @@ describe("E2E: Off-chain arbitrage pipeline", () => {
         {deviationBps: 50, amount: 50000},
         {deviationBps: 0, amount: 10000},
       ],
+      priceQuoteAmount: 1000,
     };
 
     config = {
       rpcUrl: RPC_URL,
+      // No Flashbots against a local anvil — send down the same pipe we read from.
+      sendRpcUrl: RPC_URL,
       chainId: CHAIN_ID,
       morphoAddress: ethers.ZeroAddress,
       curveRouterAddress: ethers.ZeroAddress,
@@ -89,6 +130,8 @@ describe("E2E: Off-chain arbitrage pipeline", () => {
       pollIntervalMs: 1000,
       maxGasPriceGwei: 1000,
       slippageBps: 50,
+
+      inclusionTimeoutMs: 15_000,
     };
 
     const dexQuoter = new DexQuoter(provider, ethers.ZeroAddress, addresses.vusd, {});
@@ -114,7 +157,7 @@ describe("E2E: Off-chain arbitrage pipeline", () => {
     await provider.send("evm_revert", [snapshotId]);
   });
 
-  async function runPipeline(price: bigint) {
+  async function runPipeline(price: bigint, exec: Executor = executor) {
     await dexContract.setPrice(price);
 
     const priceData = await priceMonitor.getPriceData(usdc);
@@ -144,7 +187,7 @@ describe("E2E: Off-chain arbitrage pipeline", () => {
       minProfit: 0n,
     };
 
-    const receipt = await executor.execute(opportunity);
+    const receipt = await exec.execute(opportunity);
     return {priceData, evaluation, receipt};
   }
 
@@ -204,6 +247,32 @@ describe("E2E: Off-chain arbitrage pipeline", () => {
     expect(priceData.peggedDexSellPrice).toBeCloseTo(1.0, 4);
     expect(evaluation).toBeNull();
     expect(receipt).toBeNull();
+  });
+
+  it("should give up, not hang, when the tx is never included", async () => {
+    const droppingRpc = await startDroppingRpc();
+    const inclusionTimeoutMs = 3_000;
+
+    try {
+      const droppingExecutor = new Executor(
+        provider,
+        {...config, sendRpcUrl: droppingRpc.url, inclusionTimeoutMs},
+        ANVIL_PRIVATE_KEY,
+      );
+
+      const startedAt = Date.now();
+      const {evaluation, receipt} = await runPipeline(ethers.parseUnits("1.03", 18), droppingExecutor);
+      const elapsed = Date.now() - startedAt;
+
+      // The opportunity was real and the tx was signed and submitted — it just
+      // never landed. That must resolve as "no receipt" within the timeout,
+      // because an unbounded wait here blocks the whole keeper loop forever.
+      expect(evaluation).not.toBeNull();
+      expect(receipt).toBeNull();
+      expect(elapsed).toBeLessThan(inclusionTimeoutMs * 5);
+    } finally {
+      await droppingRpc.close();
+    }
   });
 
   it("should skip when profit is below minProfitBase threshold", async () => {
