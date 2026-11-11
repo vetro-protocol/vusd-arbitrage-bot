@@ -177,7 +177,10 @@ export class Keeper {
             `spread=${evaluation.spreadBps}bps | est profit=${evaluation.estimatedProfitBase.toFixed(4)} ${underlying.symbol}`,
         );
 
-        // 5. Build swap params
+        // 5. Build swap params + opportunity. The executor simulates once
+        // before it sends, and skips the trade if the profit is below minProfit.
+        const minProfit = ethers.parseUnits(String(this.config.minProfitBase), underlying.decimals);
+
         let swapParams;
         if (evaluation.direction === ArbDirection.MINT_AND_SELL) {
           const peggedEstimate = priceData.gatewayMintOutput;
@@ -186,9 +189,6 @@ export class Keeper {
         } else {
           swapParams = await this.swapBuilder.buildBuyPeggedSwap(cappedFlashAmount, underlying, priceData.dexBuyQuote);
         }
-
-        // 6. Build opportunity
-        const minProfit = ethers.parseUnits(String(this.config.minProfitBase), underlying.decimals);
 
         const opportunity: ArbOpportunity = {
           direction: evaluation.direction,
@@ -200,7 +200,7 @@ export class Keeper {
           minProfit,
         };
 
-        // 7. Execute
+        // 6. Execute
         const receipt = await this.executor.execute(opportunity);
         if (receipt) {
           console.log(`[${ts()}] [${underlying.symbol}] ARB EXECUTED! Tx: ${receipt.hash}`);

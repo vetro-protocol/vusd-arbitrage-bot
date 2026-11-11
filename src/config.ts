@@ -6,11 +6,15 @@ export interface Config {
   // ── Global infra ──────────────────────────────────────────────────────
   rpcUrl: string;
   /**
-   * Send-only endpoint. Defaults to a Flashbots Protect URL: transactions that
-   * would revert are never included, so a lost race costs no gas. Reads and
-   * simulation always go through `rpcUrl`.
+   * Send-only Flashbots Protect endpoint. Transactions that would revert are
+   * never included, so a lost race costs no gas. Its `blockRange` param sets
+   * how long Protect tries. Reads and simulation always go through `rpcUrl`.
+   * Must be on `https://rpc.flashbots.net`: the tx status is read from the
+   * Protect API, which knows only txs sent to Protect.
    */
   sendRpcUrl: string;
+  /** Flashbots Protect status API; the tx hash is appended. */
+  protectStatusUrl: string;
   chainId: number;
   /** Morpho flash loan pool */
   morphoAddress: string;
@@ -51,8 +55,13 @@ export interface Config {
   /** DEX swap slippage tolerance (bps) */
   slippageBps: number;
 
-  /** How long to wait for inclusion before treating a tx as dropped (ms) */
-  inclusionTimeoutMs: number;
+  /**
+   * Chainlink ETH price feed in the underlying base asset. Unset → no gas check
+   * and the RPC's suggested tip is used.
+   */
+  ethPriceFeed?: string;
+  /** Share (bps) of the profit above minProfit + base fee that is paid as priority fee */
+  tipShareBps: number;
 }
 
 export function loadConfig(): Config {
@@ -74,7 +83,8 @@ export function loadConfig(): Config {
 
   return {
     rpcUrl: process.env.ETHEREUM_RPC_URL!,
-    sendRpcUrl: process.env.SEND_RPC_URL || "https://rpc.flashbots.net/fast?blocksToLive=1",
+    sendRpcUrl: parseSendRpcUrl(process.env.SEND_RPC_URL),
+    protectStatusUrl: "https://protect.flashbots.net/tx/",
     chainId: 1,
     morphoAddress: Constants.MORPHO_ADDRESS,
     curveRouterAddress: Constants.CURVE_ROUTER_ADDRESS,
@@ -102,10 +112,59 @@ export function loadConfig(): Config {
     maxGasPriceGwei: parseInt(process.env.MAX_GAS_PRICE_GWEI || "50"),
     slippageBps: parseInt(process.env.SLIPPAGE_BPS || "50"),
 
-    // Protect offers the tx for blocksToLive blocks, then drops it. Waiting much
-    // past that just blocks the keeper loop — execute() is awaited per underlying.
-    inclusionTimeoutMs: parseInt(process.env.INCLUSION_TIMEOUT_MS || "30000"),
+    // ETH_PRICE_FEED="" turns the gas check off.
+    ethPriceFeed: process.env.ETH_PRICE_FEED ?? product.ethPriceFeed,
+    tipShareBps: Number(process.env.TIP_SHARE_BPS || "5000"),
   };
+}
+
+const DEFAULT_SEND_RPC_URL = "https://rpc.flashbots.net/fast?blockRange=5";
+const FLASHBOTS_PROTECT_HOST = "rpc.flashbots.net";
+/** Protect's blockRange when the URL does not set it. */
+const PROTECT_DEFAULT_BLOCK_RANGE = 25;
+const BLOCK_TIME_MS = 12_000;
+
+/**
+ * SEND_RPC_URL must be Flashbots Protect. The bot reads the tx status from the
+ * Protect status API, and a public RPC mines txs that revert (and burns gas).
+ * Query params (for example `blockRange`) can change.
+ */
+export function parseSendRpcUrl(value: string | undefined): string {
+  const raw = value || DEFAULT_SEND_RPC_URL;
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error(`SEND_RPC_URL is not a valid URL: ${raw}`);
+  }
+  if (url.protocol !== "https:" || url.hostname !== FLASHBOTS_PROTECT_HOST) {
+    throw new Error(
+      `SEND_RPC_URL must be a Flashbots Protect URL (https://${FLASHBOTS_PROTECT_HOST}/...), got ${raw}. ` +
+        `The bot reads the tx status from the Protect API.`,
+    );
+  }
+  blockRangeOf(raw);
+  return raw;
+}
+
+/** The `blockRange` query param of a Protect URL, or Protect's default when it is not set. */
+export function blockRangeOf(sendRpcUrl: string): number {
+  const value = new URL(sendRpcUrl).searchParams.get("blockRange");
+  if (value === null) return PROTECT_DEFAULT_BLOCK_RANGE;
+  const blockRange = Number(value);
+  if (!Number.isInteger(blockRange) || blockRange <= 0) {
+    throw new Error(`SEND_RPC_URL blockRange must be a positive integer, got ${value}`);
+  }
+  return blockRange;
+}
+
+/**
+ * Safety cap on the wait for a final Protect status: 2 × blockRange blocks.
+ * The status API reports FAILED once blockRange blocks pass, so the cap is
+ * reached only when the API does not answer.
+ */
+export function inclusionTimeoutMs(sendRpcUrl: string): number {
+  return 2 * blockRangeOf(sendRpcUrl) * BLOCK_TIME_MS;
 }
 
 /**

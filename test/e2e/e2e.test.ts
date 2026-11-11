@@ -18,13 +18,32 @@ const CHAIN_ID = 31337;
 const MOCK_DEX_ABI = ["function setPrice(uint256 priceAinB_) external", "function priceAinB() view returns (uint256)"];
 const ERC20_ABI = ["function balanceOf(address) view returns (uint256)"];
 
+const DROPPED_HASH = "0x" + "ab".repeat(32);
+
 /**
- * Stands in for Flashbots Protect declining to include a transaction: accepts
- * eth_sendRawTransaction, hands back a hash, and never mines it. Exactly what a
- * lost one-block race looks like from the bot's side.
+ * Stands in for Flashbots Protect.
+ * - JSON-RPC (POST): accepts eth_sendRawTransaction, returns DROPPED_HASH and
+ *   never mines it. Exactly what a lost one-block race looks like.
+ * - Status API (GET /tx/<hash>): INCLUDED when anvil has a receipt, else
+ *   `pendingStatus` (FAILED = Protect gave up, PENDING = no final status yet).
  */
-async function startDroppingRpc(): Promise<{url: string; close: () => Promise<void>}> {
+async function startProtectStub(
+  pendingStatus = "PENDING",
+): Promise<{rpcUrl: string; statusUrl: string; close: () => Promise<void>}> {
+  const anvil = new ethers.JsonRpcProvider(RPC_URL, CHAIN_ID, {staticNetwork: true});
+
   const server = http.createServer((req, res) => {
+    res.setHeader("Content-Type", "application/json");
+
+    if (req.method === "GET" && req.url?.startsWith("/tx/")) {
+      const hash = req.url.slice("/tx/".length);
+      anvil.getTransactionReceipt(hash).then(
+        (receipt) => res.end(JSON.stringify({status: receipt ? "INCLUDED" : pendingStatus, hash})),
+        () => res.end(JSON.stringify({status: pendingStatus, hash})),
+      );
+      return;
+    }
+
     let body = "";
     req.on("data", (c) => (body += c));
     req.on("end", () => {
@@ -33,16 +52,8 @@ async function startDroppingRpc(): Promise<{url: string; close: () => Promise<vo
       const answer = ({id, method}: {id: number; method: string}) => ({
         jsonrpc: "2.0",
         id,
-        result:
-          method === "eth_sendRawTransaction"
-            ? "0x" + "ab".repeat(32) // plausible hash for a tx that will never land
-            : method === "eth_chainId"
-              ? "0x" + CHAIN_ID.toString(16)
-              : method === "net_version"
-                ? String(CHAIN_ID)
-                : "0x0",
+        result: method === "eth_sendRawTransaction" ? DROPPED_HASH : "0x0",
       });
-      res.setHeader("Content-Type", "application/json");
       res.end(JSON.stringify(Array.isArray(payload) ? payload.map(answer) : answer(payload)));
     });
   });
@@ -50,7 +61,8 @@ async function startDroppingRpc(): Promise<{url: string; close: () => Promise<vo
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const {port} = server.address() as {port: number};
   return {
-    url: `http://127.0.0.1:${port}`,
+    rpcUrl: `http://127.0.0.1:${port}`,
+    statusUrl: `http://127.0.0.1:${port}/tx/`,
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
   };
 }
@@ -68,9 +80,11 @@ describe("E2E: Off-chain arbitrage pipeline", () => {
   let dexContract: ethers.Contract;
   let usdcContract: ethers.Contract;
   let snapshotId: string;
+  let protect: Awaited<ReturnType<typeof startProtectStub>>;
 
   beforeAll(async () => {
     await startAnvil();
+    protect = await startProtectStub();
     addresses = deployMocks(RPC_URL);
 
     provider = new ethers.JsonRpcProvider(RPC_URL);
@@ -105,7 +119,9 @@ describe("E2E: Off-chain arbitrage pipeline", () => {
     config = {
       rpcUrl: RPC_URL,
       // No Flashbots against a local anvil — send down the same pipe we read from.
+      // The status stub reports INCLUDED once anvil has the receipt.
       sendRpcUrl: RPC_URL,
+      protectStatusUrl: protect.statusUrl,
       chainId: CHAIN_ID,
       morphoAddress: ethers.ZeroAddress,
       curveRouterAddress: ethers.ZeroAddress,
@@ -131,7 +147,9 @@ describe("E2E: Off-chain arbitrage pipeline", () => {
       maxGasPriceGwei: 1000,
       slippageBps: 50,
 
-      inclusionTimeoutMs: 15_000,
+      // No Chainlink on a bare anvil — the executor falls back to the RPC tip.
+      ethPriceFeed: undefined,
+      tipShareBps: 5000,
     };
 
     const dexQuoter = new DexQuoter(provider, ethers.ZeroAddress, addresses.vusd, {});
@@ -145,7 +163,8 @@ describe("E2E: Off-chain arbitrage pipeline", () => {
     usdcContract = new ethers.Contract(addresses.usdc, ERC20_ABI, provider);
   });
 
-  afterAll(() => {
+  afterAll(async () => {
+    await protect.close();
     stopAnvil();
   });
 
@@ -249,29 +268,50 @@ describe("E2E: Off-chain arbitrage pipeline", () => {
     expect(receipt).toBeNull();
   });
 
-  it("should give up, not hang, when the tx is never included", async () => {
-    const droppingRpc = await startDroppingRpc();
-    const inclusionTimeoutMs = 3_000;
+  it("should stop when Protect reports FAILED (blockRange passed)", async () => {
+    const failing = await startProtectStub("FAILED");
 
     try {
       const droppingExecutor = new Executor(
         provider,
-        {...config, sendRpcUrl: droppingRpc.url, inclusionTimeoutMs},
+        {...config, sendRpcUrl: failing.rpcUrl, protectStatusUrl: failing.statusUrl},
         ANVIL_PRIVATE_KEY,
       );
 
       const startedAt = Date.now();
       const {evaluation, receipt} = await runPipeline(ethers.parseUnits("1.03", 18), droppingExecutor);
-      const elapsed = Date.now() - startedAt;
 
-      // The opportunity was real and the tx was signed and submitted — it just
-      // never landed. That must resolve as "no receipt" within the timeout,
-      // because an unbounded wait here blocks the whole keeper loop forever.
+      // The opportunity was real and the tx was sent; Protect dropped it.
+      // The first status poll ends the wait, long before the timeout.
       expect(evaluation).not.toBeNull();
       expect(receipt).toBeNull();
-      expect(elapsed).toBeLessThan(inclusionTimeoutMs * 5);
+      expect(Date.now() - startedAt).toBeLessThan(10_000);
     } finally {
-      await droppingRpc.close();
+      await failing.close();
+    }
+  });
+
+  it("should give up, not hang, when the status stays PENDING", async () => {
+    const pending = await startProtectStub("PENDING");
+    const inclusionTimeoutMs = 3_000;
+
+    try {
+      const droppingExecutor = new Executor(
+        provider,
+        {...config, sendRpcUrl: pending.rpcUrl, protectStatusUrl: pending.statusUrl},
+        ANVIL_PRIVATE_KEY,
+      );
+      // The real cap is 2 × blockRange blocks; make it short for the test.
+      (droppingExecutor as any).inclusionTimeoutMs = inclusionTimeoutMs;
+
+      const startedAt = Date.now();
+      const {receipt} = await runPipeline(ethers.parseUnits("1.03", 18), droppingExecutor);
+
+      // An unbounded wait here would block the whole keeper loop forever.
+      expect(receipt).toBeNull();
+      expect(Date.now() - startedAt).toBeLessThan(inclusionTimeoutMs * 5);
+    } finally {
+      await pending.close();
     }
   });
 
