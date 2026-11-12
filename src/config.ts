@@ -143,6 +143,14 @@ export function parseSendRpcUrl(value: string | undefined): string {
         `The bot reads the tx status from the Protect API.`,
     );
   }
+  // canRevert=true makes Protect mine txs that revert, so a lost race burns gas.
+  if (url.searchParams.get("canRevert")?.toLowerCase() === "true") {
+    throw new Error(`SEND_RPC_URL must not set canRevert=true, got ${raw}`);
+  }
+  // blocksToLive is not a Protect param. Protect ignores it and uses its default blockRange (25 blocks).
+  if (url.searchParams.has("blocksToLive")) {
+    throw new Error(`SEND_RPC_URL must not set blocksToLive (not a Protect param). Use blockRange, got ${raw}`);
+  }
   blockRangeOf(raw);
   return raw;
 }

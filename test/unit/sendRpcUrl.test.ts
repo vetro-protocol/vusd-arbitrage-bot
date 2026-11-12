@@ -12,12 +12,25 @@ describe("parseSendRpcUrl", () => {
     expect(parseSendRpcUrl(url)).toBe(url);
   });
 
-  it.each(["https://rpc.flashbots.net/fast?blockRange=0", "https://rpc.flashbots.net/fast?blockRange=abc", "https://eth.llamarpc.com", "http://rpc.flashbots.net/fast", "https://rpc.flashbots.net.evil.com", "not a url"])(
-    "rejects %s",
-    (url) => {
-      expect(() => parseSendRpcUrl(url)).toThrow(/SEND_RPC_URL/);
-    },
-  );
+  it("accepts canRevert=false", () => {
+    const url = "https://rpc.flashbots.net/fast?blockRange=5&canRevert=false";
+    expect(parseSendRpcUrl(url)).toBe(url);
+  });
+
+  it.each([
+    "https://rpc.flashbots.net/fast?blockRange=5&canRevert=true",
+    "https://rpc.flashbots.net/fast?canRevert=TRUE",
+    "https://rpc.flashbots.net/fast?blocksToLive=1",
+    "https://rpc.flashbots.net/fast?blockRange=5&blocksToLive=1",
+    "https://rpc.flashbots.net/fast?blockRange=0",
+    "https://rpc.flashbots.net/fast?blockRange=abc",
+    "https://eth.llamarpc.com",
+    "http://rpc.flashbots.net/fast",
+    "https://rpc.flashbots.net.evil.com",
+    "not a url",
+  ])("rejects %s", (url) => {
+    expect(() => parseSendRpcUrl(url)).toThrow(/SEND_RPC_URL/);
+  });
 });
 
 describe("inclusionTimeoutMs", () => {
