@@ -296,9 +296,12 @@ Defaults come from the selected product in `src/products.ts`. Values are denomin
 | `MIN_PROFIT_BASE`          | `5` / `0.0001`           | Minimum estimated profit (in base asset) to execute |
 | `ESTIMATED_GAS_COST_BASE`  | `5` / `0.00006`          | Gas-cost assumption subtracted from profit estimate |
 | `MAX_FLASH_AMOUNT`         | `1000000` / `0.5`        | Cap on flash size (human units of base asset) |
-| `FLASH_AMOUNT_TIERS`       | see `products.ts`        | JSON: `[[deviationBps, amount], …]`, first match wins |
+| `FLASH_AMOUNT_TIERS`       | see `products.ts`        | JSON: `[[deviationBps, amount], …]`, first match wins. The size is not reduced after the simulation, so keep each size below the pool's best size (see the comment in `products.ts`) |
+| `SEND_RPC_URL`             | Flashbots Protect `fast?blockRange=5` | Send-only endpoint for signed txs. Must be Flashbots Protect: the bot does not start if the URL is not `https://rpc.flashbots.net/...`. A tx that would revert is not included. `blockRange` sets how many blocks Protect tries. The bot waits until the Protect status API reports `INCLUDED`, `FAILED` or `CANCELLED`, with a safety cap of 2 × `blockRange` blocks |
+| `TIP_SHARE_BPS`            | `5000`                   | Share of the profit above `MIN_PROFIT_BASE` + base fee that is paid as priority fee. The tip is reduced when the wallet ETH balance does not cover `gasLimit × maxFeePerGas` |
+| `ETH_PRICE_FEED`           | see `products.ts`        | Chainlink ETH price in the base asset. Used to skip txs whose profit does not cover gas, and to size the tip. Empty = off (RPC-suggested tip) |
 | `POLL_INTERVAL_MS`         | `5000`                   | Price poll interval (ms) |
-| `MAX_GAS_PRICE_GWEI`       | `50`                     | Skip if gas price exceeds this |
+| `MAX_GAS_PRICE_GWEI`       | `50`                     | Skip if the network gas price exceeds this. The profit-based tip (`TIP_SHARE_BPS`) is not limited by it |
 | `SLIPPAGE_BPS`             | `50`                     | DEX slippage tolerance (50 = 0.5%) |
 
 ### DEX price sources
@@ -548,7 +551,7 @@ Go live by adding `PRIVATE_KEY` to the env file and recreating the container
   Mode        : LIVE
   Min profit  : 20 USDC
   Poll        : 5s
-  Flash tiers : >500bps→2000USDC, >200bps→1000USDC, >50bps→500USDC, >0bps→500USDC
+  Flash tiers : >500bps→75000USDC, >200bps→30000USDC, >100bps→10000USDC, >50bps→5000USDC, >0bps→500USDC
 ═══════════════════════════════════════════════════
 ```
 

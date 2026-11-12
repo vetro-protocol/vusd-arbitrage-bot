@@ -81,6 +81,11 @@ export interface Product {
   /** Flash-loan sizing tiers — first match wins (sorted descending by deviationBps) */
   defaultFlashAmountTiers: FlashAmountTier[];
   /**
+   * Chainlink feed that prices 1 ETH in the underlying base asset. Converts
+   * profit to ETH so the executor can check it against gas and size the tip.
+   */
+  ethPriceFeed?: string;
+  /**
    * Notional size (human units of pegged or underlying — both share decimals
    * within a product) used for price-discovery quotes. Must be small enough
    * that DEX/aggregator price impact stays meaningful at current pool depth.
@@ -139,12 +144,23 @@ const VUSD: Product = {
   defaultMinProfitBase: 5, // 5 USDC
   defaultEstimatedGasCostBase: 5, // 5 USDC
   defaultMaxFlashAmount: 1_000_000, // 1,000,000 USDC
+  // Conservative sizes. The keeper does not reduce a size that is too large, so
+  // each size must stay well below the pool's best size. Source: Curve router
+  // quotes + gateway previewRedeem at the 2026-10-29 depeg (block 26301948, USDC,
+  // ~245 bps net spread): profit 1k→25, 10k→235, 30k→618, 50k→915, 100k→1,407
+  // USDC, still growing at 100k. Rule: the size where the marginal price impact
+  // is ~half of the deviation (keeps ≥75% of the max profit), × 0.85 because the
+  // crvUSD/VUSD pool (the bottleneck, A=100) fell from 667k to 570k by
+  // 2026-11-11. Measure again and update if that pool changes much.
+  // At 12+ gwei a buyAndRedeem costs ~$20-30 of gas: below ~50 bps no size pays.
   defaultFlashAmountTiers: [
-    {deviationBps: 500, amount: 2000},
-    {deviationBps: 200, amount: 1000},
-    {deviationBps: 50, amount: 500},
+    {deviationBps: 500, amount: 75000},
+    {deviationBps: 200, amount: 30000},
+    {deviationBps: 100, amount: 10000},
+    {deviationBps: 50, amount: 5000},
     {deviationBps: 0, amount: 500},
   ],
+  ethPriceFeed: "0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419", // Chainlink ETH / USD
   priceQuoteAmount: 1000, // 1000 VUSD / USDC notional — deep VUSD pools
 };
 
@@ -233,6 +249,7 @@ const VETBTC: Product = {
     {deviationBps: 50, amount: 0.0001},
     {deviationBps: 0, amount: 0.0001},
   ],
+  ethPriceFeed: "0xAc559F25B1619171CbC396a50854A3240b6A4e99", // Chainlink ETH / BTC
   // 0.0001 vetBTC ≈ $9 — small enough for ~$1.1k pool to quote without
   // require(false). Raise as pool liquidity grows.
   priceQuoteAmount: 0.0001,
