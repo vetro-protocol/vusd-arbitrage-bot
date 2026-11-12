@@ -122,24 +122,47 @@ export class Executor {
     const method = opportunity.direction === ArbDirection.MINT_AND_SELL ? "mintAndSell" : "buyAndRedeem";
 
     try {
-      const populated = await this.arbContract[method].populateTransaction(
-        opportunity.underlying.address,
-        opportunity.flashAmount,
-        this.formatSwapParams(opportunity.swapParams),
-        opportunity.minProfit,
-      );
-
+      const populate = (minProfit: bigint) =>
+        this.arbContract[method].populateTransaction(
+          opportunity.underlying.address,
+          opportunity.flashAmount,
+          this.formatSwapParams(opportunity.swapParams),
+          minProfit,
+        );
       // Unlike simulate(), this carries the real minProfit_ — so a revert here is
       // the same revert the submitted tx would hit, and we never sign it.
-      const estimate = await this.provider.estimateGas({
-        to: populated.to,
-        data: populated.data,
-        from: this.wallet.address,
-      });
-      const gasLimit = (estimate * GAS_LIMIT_BUFFER_PCT) / 100n;
+      const estimateGas = (data: string) =>
+        this.provider.estimateGas({to: this.config.arbitrageAddress, data, from: this.wallet!.address});
 
-      let tip = await this.priorityFee(opportunity, simulatedProfit, estimate, baseFee, feeData.maxPriorityFeePerGas);
-      if (tip === null) return null;
+      let populated = await populate(opportunity.minProfit);
+      const firstEstimate = await estimateGas(populated.data);
+
+      const fee = await this.priorityFee(
+        opportunity,
+        simulatedProfit,
+        firstEstimate,
+        baseFee,
+        feeData.maxPriorityFeePerGas,
+      );
+      if (fee === null) return null;
+      const {ethPrice} = fee;
+      let {tip} = fee;
+
+      // The tip is sized from the simulated profit. If the edge gets smaller before
+      // inclusion, the tx must revert (Protect then drops it, no gas spent) and not
+      // succeed at a net loss. Thus the on-chain floor also includes the gas cost.
+      const minProfit = this.profitFloor(
+        opportunity.minProfit,
+        simulatedProfit,
+        (baseFee + tip) * firstEstimate,
+        ethPrice,
+      );
+      let estimate = firstEstimate;
+      if (minProfit !== opportunity.minProfit) {
+        populated = await populate(minProfit);
+        estimate = await estimateGas(populated.data);
+      }
+      const gasLimit = (estimate * GAS_LIMIT_BUFFER_PCT) / 100n;
 
       // "pending": do not use the nonce of a tx that is still waiting.
       const [balance, nonce] = await Promise.all([
@@ -148,7 +171,8 @@ export class Executor {
       ]);
 
       // The node rejects a tx when balance < gasLimit × maxFeePerGas. Reduce the
-      // tip so that the tx is accepted: a smaller tip costs less, so the gas check stays valid.
+      // tip so that the tx is accepted: a smaller tip costs less, so the gas check
+      // and the minProfit_ floor stay valid.
       const maxTip = balance / gasLimit - baseFee * 2n;
       if (maxTip <= 0n) {
         console.error(
@@ -180,7 +204,8 @@ export class Executor {
       const hash: string = await this.sendProvider.send("eth_sendRawTransaction", [raw]);
       console.log(
         `[Execute] Tx submitted: ${hash} | simulated at block ${quoteBlock} | ` +
-          `baseFee ${ethers.formatUnits(baseFee, "gwei")} gwei | tip ${ethers.formatUnits(tip, "gwei")} gwei | gasLimit ${gasLimit}`,
+          `baseFee ${ethers.formatUnits(baseFee, "gwei")} gwei | tip ${ethers.formatUnits(tip, "gwei")} gwei | gasLimit ${gasLimit} | ` +
+          `minProfit ${ethers.formatUnits(minProfit, opportunity.underlying.decimals)} ${opportunity.underlying.symbol}`,
       );
 
       const receipt = await this.waitForInclusion(hash);
@@ -209,7 +234,8 @@ export class Executor {
    * pays builders nothing, so with full blocks the tx never got in.
    *
    * Returns null when the profit does not pay for the gas. Without a price feed
-   * there is no ETH price to compare against, so this falls back to `rpcTip`.
+   * there is no ETH price to compare against, so this falls back to `rpcTip`
+   * and `ethPrice` is null.
    */
   private async priorityFee(
     opportunity: ArbOpportunity,
@@ -217,8 +243,8 @@ export class Executor {
     gasEstimate: bigint,
     baseFee: bigint,
     rpcTip: bigint,
-  ): Promise<bigint | null> {
-    if (!this.priceFeed) return rpcTip;
+  ): Promise<{tip: bigint; ethPrice: bigint | null} | null> {
+    if (!this.priceFeed) return {tip: rpcTip, ethPrice: null};
 
     const ethPrice = await this.ethPriceInUnderlying(opportunity.underlying.decimals);
     const toWei = (amount: bigint) => (amount * 10n ** 18n) / ethPrice;
@@ -239,7 +265,19 @@ export class Executor {
       return null;
     }
 
-    return tip;
+    return {tip, ethPrice};
+  }
+
+  /**
+   * On-chain minProfit_: `minProfit` plus the gas cost in the underlying,
+   * rounded up. Capped at `simulatedProfit`, which priorityFee() makes sure
+   * covers both. Without an ETH price (no feed) this is `minProfit` only.
+   */
+  private profitFloor(minProfit: bigint, simulatedProfit: bigint, gasCostWei: bigint, ethPrice: bigint | null): bigint {
+    if (ethPrice === null) return minProfit;
+    const gasCost = (gasCostWei * ethPrice + 10n ** 18n - 1n) / 10n ** 18n;
+    const floor = minProfit + gasCost;
+    return floor < simulatedProfit ? floor : simulatedProfit;
   }
 
   /** 1 ETH in underlying raw units, from the Chainlink feed. The feed is assumed to be up to date. */
